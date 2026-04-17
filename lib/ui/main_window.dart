@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/proxy_settings.dart';
 import '../models/proxy_state.dart';
+import '../providers/breakpoint_interceptor.dart';
 import '../providers/exchange_provider.dart';
 import '../providers/proxy_control_provider.dart';
 import '../providers/settings_provider.dart';
@@ -76,6 +77,9 @@ class _MainWindowState extends ConsumerState<MainWindow> {
 
   @override
   Widget build(BuildContext context) {
+    // Set navigation context for breakpoint dialogs
+    ref.read(navigationServiceProvider).context = context;
+    
     // Auto-start once settings are loaded from disk (ref.listen is valid here).
     ref.listen(settingsLoadedProvider, (_, isLoaded) {
       if (isLoaded) _maybeAutoStart();

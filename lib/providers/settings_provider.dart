@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/domain_rule.dart';
 import '../models/proxy_settings.dart';
 import '../services/settings_service.dart';
+import 'breakpoint_provider.dart';
 import 'proxy_channel_provider.dart';
 import 'proxy_control_provider.dart';
 
@@ -31,9 +32,16 @@ class SettingsNotifier extends StateNotifier<ProxySettings> {
     // isRecording has no UI toggle anymore; always start in recording mode.
     state = loaded.copyWith(isRecording: true);
     _ref.read(settingsLoadedProvider.notifier).state = true;
+    
+    // Sync breakpoint rules with breakpoint provider
+    _ref.read(breakpointProvider.notifier).state = state.breakpointRules;
   }
 
-  Future<void> _save() => _service.save(state);
+  Future<void> _save() async {
+    await _service.save(state);
+    // Also sync breakpoint rules with breakpoint provider
+    _ref.read(breakpointProvider.notifier).state = state.breakpointRules;
+  }
 
   void setPort(int port) {
     state = state.copyWith(port: port);

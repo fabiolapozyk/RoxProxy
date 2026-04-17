@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'certificate_setup_view.dart';
 import 'domain_list_view.dart';
 import 'general_settings.dart';
+import 'breakpoint_list_view.dart';
 
 class SettingsView extends StatefulWidget {
   const SettingsView({super.key});
@@ -18,7 +19,7 @@ class _SettingsViewState extends State<SettingsView>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
   }
 
   @override
@@ -41,6 +42,7 @@ class _SettingsViewState extends State<SettingsView>
           tabs: const [
             Tab(text: 'General'),
             Tab(text: 'HTTPS Domains'),
+            Tab(text: 'Breakpoints'),
             Tab(text: 'Certificate'),
           ],
         ),
@@ -51,6 +53,7 @@ class _SettingsViewState extends State<SettingsView>
             children: const [
               GeneralSettings(),
               DomainListView(),
+              BreakpointListView(),
               CertificateSetupView(),
             ],
           ),

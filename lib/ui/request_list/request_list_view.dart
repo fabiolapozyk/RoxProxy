@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../models/breakpoint_rule.dart';
 import '../../models/captured_exchange.dart';
 import '../../models/replay_request.dart';
+import '../../providers/breakpoint_provider.dart';
 import '../../providers/exchange_provider.dart';
 import '../../providers/proxy_channel_provider.dart';
 import '../../providers/settings_provider.dart';
@@ -252,6 +254,8 @@ class _ExchangeRow extends ConsumerWidget {
   bool get _canReplay => exchange.state == ExchangeState.completed && 
                          !(exchange.isHTTPS && !exchange.isMITMDecrypted && exchange.method == 'CONNECT');
 
+  bool get _canAddBreakpoint => exchange.isHTTPS || exchange.scheme == 'http';
+
   Future<void> _copyAsCurl(BuildContext context, WidgetRef ref) async {
     var bodyBytes = exchange.cachedRequestBody;
     if (bodyBytes == null && exchange.requestBodyRef != null) {
@@ -334,6 +338,11 @@ class _ExchangeRow extends ConsumerWidget {
             value: 'replay',
             child: Text('Edit and Replay', style: TextStyle(fontSize: 13)),
           ),
+        if (_canAddBreakpoint)
+          const PopupMenuItem<String>(
+            value: 'add_breakpoint',
+            child: Text('Add Breakpoint for this URL', style: TextStyle(fontSize: 13)),
+          ),
       ],
     );
 
@@ -352,6 +361,33 @@ class _ExchangeRow extends ConsumerWidget {
       );
     } else if (result == 'replay') {
       await _showReplayDialog(context, ref);
+    } else if (result == 'add_breakpoint') {
+      _addBreakpointRule(context, ref);
+    }
+  }
+
+  void _addBreakpointRule(BuildContext context, WidgetRef ref) {
+    // Create a breakpoint rule from the exchange URL
+    final rule = BreakpointRule.fromExchangeUrl(exchange.url);
+    
+    // Add the rule
+    ref.read(breakpointProvider.notifier).addRule(rule);
+    
+    // Show confirmation
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Breakpoint added for ${rule.urlPattern}'),
+          duration: const Duration(seconds: 2),
+          action: SnackBarAction(
+            label: 'VIEW',
+            onPressed: () {
+              // TODO: Navigate to settings > breakpoints tab
+              ScaffoldMessenger.of(context).hideCurrentSnackBar();
+            },
+          ),
+        ),
+      );
     }
   }
 
@@ -413,7 +449,7 @@ class _ExchangeRow extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return GestureDetector(
       onTap: onTap,
-      onSecondaryTapDown: (_canCopyCurl || _canCopyUrl || _canAddDomain)
+      onSecondaryTapDown: (_canCopyCurl || _canCopyUrl || _canAddDomain || _canAddBreakpoint)
           ? (d) => _showContextMenu(context, ref, d.globalPosition)
           : null,
       child: Container(

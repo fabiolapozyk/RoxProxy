@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/captured_exchange.dart';
 import '../services/proxy_channel.dart';
+import 'breakpoint_interceptor.dart';
 import 'proxy_channel_provider.dart';
 import 'settings_provider.dart';
 
@@ -59,6 +60,9 @@ class ExchangeListNotifier extends StateNotifier<List<CapturedExchange>> {
   void _onEvent(ExchangeEvent event) {
     final settings = _ref.read(settingsProvider);
     if (!settings.isRecording && event.type == 'new') return;
+
+    // Check for breakpoint matches
+    _ref.read(breakpointInterceptorProvider).checkExchange(event.exchange);
 
     if (event.type == 'new') {
       var list = [...state, event.exchange];

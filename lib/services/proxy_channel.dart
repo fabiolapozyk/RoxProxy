@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 
+import '../models/breakpoint_rule.dart';
 import '../models/captured_exchange.dart';
 import '../models/domain_rule.dart';
 
@@ -123,5 +124,61 @@ class ProxyChannel {
   Future<String> replayRequest(Map<String, dynamic> request) async {
     final result = await _method.invokeMethod<Map>('replayRequest', request);
     return result?['exchangeId'] as String? ?? '';
+  }
+
+  // MARK: - Breakpoints
+
+  Future<void> setBreakpointRules(List<BreakpointRule> rules) async {
+    await _method.invokeMethod('setBreakpointRules', {
+      'rules': rules.map((r) => r.toMap()).toList(),
+    });
+  }
+
+  Future<Map<String, dynamic>?> waitForBreakpoint(String exchangeId) async {
+    final result = await _method.invokeMethod<Map?>('waitForBreakpoint', {
+      'exchangeId': exchangeId,
+    });
+    return result?.cast<String, dynamic>();
+  }
+
+  Future<void> resumeExchange(
+    String exchangeId, {
+    Map<String, dynamic>? modifications,
+  }) async {
+    await _method.invokeMethod('resumeExchange', {
+      'exchangeId': exchangeId,
+      'modifications': modifications ?? {},
+    });
+  }
+
+  Future<void> cancelExchange(String exchangeId) async {
+    await _method.invokeMethod('cancelExchange', {
+      'exchangeId': exchangeId,
+    });
+  }
+
+  Future<void> logBreakpointEvent({
+    required String exchangeId,
+    required String action,
+    String? modifications,
+    String? error,
+  }) async {
+    await _method.invokeMethod('logBreakpointEvent', {
+      'exchangeId': exchangeId,
+      'action': action,
+      'modifications': modifications,
+      'error': error,
+    });
+  }
+
+  // MARK: - Window management
+
+  Future<void> bringWindowToFront() async {
+    try {
+      await _method.invokeMethod('bringWindowToFront');
+    } catch (e) {
+      // Native method not implemented yet - this is expected during development
+      print('bringWindowToFront not available: ${e.toString()}');
+    }
   }
 }

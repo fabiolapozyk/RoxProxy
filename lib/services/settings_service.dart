@@ -35,4 +35,34 @@ class SettingsService {
       );
     } catch (_) {}
   }
+
+  // Additional methods for breakpoint service
+  Future<dynamic> getValue(String key) async {
+    try {
+      final file = await _settingsFile();
+      if (!file.existsSync()) return null;
+      final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+      return json[key];
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> setValue(String key, dynamic value) async {
+    try {
+      final file = await _settingsFile();
+      final Map<String, dynamic> json;
+      
+      if (file.existsSync()) {
+        json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+      } else {
+        json = {};
+      }
+      
+      json[key] = value;
+      file.writeAsStringSync(
+        const JsonEncoder.withIndent('  ').convert(json),
+      );
+    } catch (_) {}
+  }
 }
