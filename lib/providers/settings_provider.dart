@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/breakpoint.dart';
 import '../models/domain_rule.dart';
 import '../models/proxy_settings.dart';
 import '../services/settings_service.dart';
@@ -100,6 +101,46 @@ class SettingsNotifier extends StateNotifier<ProxySettings> {
           .map((r) => r.id == id
               ? DomainRule(id: r.id, domain: r.domain, isEnabled: !r.isEnabled)
               : r)
+          .toList(),
+    );
+    _save();
+  }
+
+  // Breakpoint methods
+  void addBreakpoint(String urlPattern, BreakpointTrigger trigger) {
+    final trimmed = urlPattern.trim();
+    if (trimmed.isEmpty) return;
+    if (state.breakpoints.any((b) => b.urlPattern == trimmed)) return;
+    state = state.copyWith(
+      breakpoints: [...state.breakpoints, Breakpoint(urlPattern: trimmed, trigger: trigger)],
+    );
+    _save();
+  }
+
+  void removeBreakpoint(String id) {
+    state = state.copyWith(
+      breakpoints: state.breakpoints.where((b) => b.id != id).toList(),
+    );
+    _save();
+  }
+
+  void toggleBreakpoint(String id) {
+    state = state.copyWith(
+      breakpoints: state.breakpoints
+          .map((b) => b.id == id
+              ? b.copyWith(isEnabled: !b.isEnabled)
+              : b)
+          .toList(),
+    );
+    _save();
+  }
+
+  void updateBreakpointTrigger(String id, BreakpointTrigger trigger) {
+    state = state.copyWith(
+      breakpoints: state.breakpoints
+          .map((b) => b.id == id
+              ? b.copyWith(trigger: trigger)
+              : b)
           .toList(),
     );
     _save();

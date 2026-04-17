@@ -18,6 +18,7 @@ public class RoxProxyNativePlugin: NSObject, FlutterPlugin {
 
         // 2. Shared objects
         let streamHandler = ExchangeStreamHandler()
+        let breakpointStreamHandler = BreakpointStreamHandler()
         let bodyStore = BodyStore()
         let keychainInstaller = KeychainInstaller()
 
@@ -42,6 +43,7 @@ public class RoxProxyNativePlugin: NSObject, FlutterPlugin {
             domainCertCache: certCache,
             keychainInstaller: keychainInstaller,
             streamHandler: streamHandler,
+            breakpointStreamHandler: breakpointStreamHandler,
             bodyStore: bodyStore,
             crashGuard: crashGuard
         )
@@ -51,6 +53,13 @@ public class RoxProxyNativePlugin: NSObject, FlutterPlugin {
         let instance = RoxProxyNativePlugin()
         registrar.addMethodCallDelegate(instance, channel: methodChannel)
         eventChannel.setStreamHandler(streamHandler)
+        
+        // 7. Register breakpoint event channel
+        let breakpointEventChannel = FlutterEventChannel(
+            name: "com.roxproxy/breakpoints",
+            binaryMessenger: registrar.messenger
+        )
+        breakpointEventChannel.setStreamHandler(breakpointStreamHandler)
 
         // 7. Clean shutdown on app termination
         NotificationCenter.default.addObserver(

@@ -22,6 +22,7 @@ class ProxyStateNotifier extends StateNotifier<ProxyState> {
       final port = await channel.startProxy(
         port: settings.port,
         domainRules: settings.domainRules,
+        breakpoints: settings.breakpoints,
         connectionTimeoutSeconds: settings.connectionTimeoutSeconds,
         setSystemProxy: settings.setSystemProxy,
         httpsInterceptionEnabled: settings.httpsInterceptionEnabled,

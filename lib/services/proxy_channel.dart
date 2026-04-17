@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 
+import '../models/breakpoint.dart';
 import '../models/captured_exchange.dart';
 import '../models/domain_rule.dart';
 
@@ -10,6 +11,37 @@ class ExchangeEvent {
   final String type; // 'new' or 'update'
   final CapturedExchange exchange;
   ExchangeEvent(this.type, this.exchange);
+}
+
+class BreakpointEvent {
+  final String exchangeId;
+  final String url;
+  final bool isRequest;
+  final Map<String, dynamic> exchangeData;
+
+  BreakpointEvent({
+    required this.exchangeId,
+    required this.url,
+    required this.isRequest,
+    required this.exchangeData,
+  });
+
+  factory BreakpointEvent.fromMap(Map<Object?, Object?> map) {
+    final data = Map<String, dynamic>.from(map);
+    return BreakpointEvent(
+      exchangeId: data['exchangeId'] as String,
+      url: data['url'] as String,
+      isRequest: data['isRequest'] as bool,
+      exchangeData: Map<String, dynamic>.from(data['exchangeData'] as Map),
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+    'exchangeId': exchangeId,
+    'url': url,
+    'isRequest': isRequest,
+    'exchangeData': exchangeData,
+  };
 }
 
 class CaStatus {
@@ -21,8 +53,10 @@ class CaStatus {
 class ProxyChannel {
   static const _method = MethodChannel('com.roxproxy/control');
   static const _events = EventChannel('com.roxproxy/exchanges');
+  static const _breakpointEvents = EventChannel('com.roxproxy/breakpoints');
 
   Stream<ExchangeEvent>? _exchangeStream;
+  Stream<BreakpointEvent>? _breakpointStream;
 
   Stream<ExchangeEvent> get exchangeStream {
     _exchangeStream ??= _events
@@ -36,11 +70,26 @@ class ProxyChannel {
     return _exchangeStream!;
   }
 
+  Stream<BreakpointEvent> get breakpointStream {
+    print('DEBUG: ProxyChannel.breakpointStream called - setting up stream');
+    _breakpointStream ??= _breakpointEvents
+        .receiveBroadcastStream()
+        .map((raw) {
+          print('DEBUG: ProxyChannel received raw breakpoint event: $raw');
+          final map = Map<Object?, Object?>.from(raw as Map);
+          final event = BreakpointEvent.fromMap(map);
+          print('DEBUG: ProxyChannel converted to BreakpointEvent: ${event.url}');
+          return event;
+        });
+    return _breakpointStream!;
+  }
+
   // MARK: - Proxy control
 
   Future<int> startProxy({
     required int port,
     required List<DomainRule> domainRules,
+    required List<Breakpoint> breakpoints,
     required int connectionTimeoutSeconds,
     required bool setSystemProxy,
     required bool httpsInterceptionEnabled,
@@ -48,6 +97,7 @@ class ProxyChannel {
     final result = await _method.invokeMethod<Map>('startProxy', {
       'port': port,
       'domainRules': domainRules.map((r) => r.toMap()).toList(),
+      'breakpoints': breakpoints.map((b) => b.toMap()).toList(),
       'connectionTimeoutSeconds': connectionTimeoutSeconds,
       'setSystemProxy': setSystemProxy,
       'httpsInterceptionEnabled': httpsInterceptionEnabled,
@@ -123,5 +173,26 @@ class ProxyChannel {
   Future<String> replayRequest(Map<String, dynamic> request) async {
     final result = await _method.invokeMethod<Map>('replayRequest', request);
     return result?['exchangeId'] as String? ?? '';
+  }
+
+  // MARK: - Breakpoint
+
+  Future<Map<String, dynamic>?> waitForBreakpointResolution(String exchangeId) async {
+    final result = await _method.invokeMethod('waitForBreakpointResolution', {
+      'exchangeId': exchangeId,
+    });
+    return result as Map<String, dynamic>?;
+  }
+
+  Future<void> resolveBreakpoint({
+    required String exchangeId,
+    required bool shouldContinue,
+    Map<String, dynamic>? modifications,
+  }) async {
+    await _method.invokeMethod('resolveBreakpoint', {
+      'exchangeId': exchangeId,
+      'shouldContinue': shouldContinue,
+      'modifications': modifications ?? {},
+    });
   }
 }

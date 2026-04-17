@@ -13,13 +13,18 @@ final class ProxyMethodHandler: NSObject {
     let domainCertCache: DomainCertificateCache?
     let keychainInstaller: KeychainInstaller
     let streamHandler: ExchangeStreamHandler
+    let breakpointStreamHandler: BreakpointStreamHandler
     let bodyStore: BodyStore
+
+    // Breakpoint resolution state
+    private var breakpointResolutions: [String: (Result<[String: Any], Error>) -> Void] = [:]
 
     init(
         certificateAuthority: CertificateAuthority?,
         domainCertCache: DomainCertificateCache?,
         keychainInstaller: KeychainInstaller,
         streamHandler: ExchangeStreamHandler,
+        breakpointStreamHandler: BreakpointStreamHandler,
         bodyStore: BodyStore,
         crashGuard: CrashGuard?
     ) {
@@ -27,6 +32,7 @@ final class ProxyMethodHandler: NSObject {
         self.domainCertCache = domainCertCache
         self.keychainInstaller = keychainInstaller
         self.streamHandler = streamHandler
+        self.breakpointStreamHandler = breakpointStreamHandler
         self.bodyStore = bodyStore
         self.crashGuard = crashGuard
     }
@@ -48,6 +54,8 @@ final class ProxyMethodHandler: NSObject {
         case "releaseAllBodies": releaseAllBodies(result: result)
         case "decompressBody":  decompressBody(call, result: result)
         case "replayRequest":   replayRequest(call, result: result)
+        case "waitForBreakpointResolution": waitForBreakpointResolution(call, result: result)
+        case "resolveBreakpoint": resolveBreakpoint(call, result: result)
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -74,6 +82,18 @@ final class ProxyMethodHandler: NSObject {
             return DomainRule(id: id, domain: domain, isEnabled: isEnabled)
         }
 
+        // Parse breakpoints from Dart
+        let rawBreakpoints = args["breakpoints"] as? [[String: Any]] ?? []
+        let breakpoints: [Breakpoint] = rawBreakpoints.compactMap { dict in
+            guard let idStr = dict["id"] as? String,
+                  let id = UUID(uuidString: idStr),
+                  let urlPattern = dict["urlPattern"] as? String,
+                  let triggerStr = dict["trigger"] as? String,
+                  let trigger = BreakpointTrigger(rawValue: triggerStr) else { return nil }
+            let isEnabled = dict["isEnabled"] as? Bool ?? true
+            return Breakpoint(id: id, urlPattern: urlPattern, trigger: trigger, isEnabled: isEnabled)
+        }
+
         let httpsInterceptionEnabled = args["httpsInterceptionEnabled"] as? Bool ?? true
         let setSystemProxy = args["setSystemProxy"] as? Bool ?? true
 
@@ -82,10 +102,12 @@ final class ProxyMethodHandler: NSObject {
             port: port,
             store: store,
             domainRules: domainRules,
+            breakpoints: breakpoints,
             connectionTimeoutSeconds: timeout,
             certificateAuthority: certificateAuthority,
             domainCertCache: domainCertCache,
-            httpsInterceptionEnabled: httpsInterceptionEnabled
+            httpsInterceptionEnabled: httpsInterceptionEnabled,
+            methodHandler: self
         )
         self.proxyServer = server
 
@@ -301,6 +323,62 @@ final class ProxyMethodHandler: NSObject {
                     details: nil
                 ))
             }
+        }
+    }
+
+    // MARK: - Breakpoint
+
+    private func waitForBreakpointResolution(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let exchangeId = args["exchangeId"] as? String else {
+            result(FlutterError(code: "INVALID_ARGS", message: "Missing exchangeId", details: nil))
+            return
+        }
+
+        // Store the result handler to be called later when breakpoint is resolved
+        breakpointResolutions[exchangeId] = { resolution in
+            switch resolution {
+            case .success(let modifications):
+                result(modifications)
+            case .failure(let error):
+                result(FlutterError(code: "BREAKPOINT_FAILED", message: error.localizedDescription, details: nil))
+            }
+        }
+    }
+
+    private func resolveBreakpoint(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let exchangeId = args["exchangeId"] as? String,
+              let shouldContinue = args["shouldContinue"] as? Bool else {
+            result(FlutterError(code: "INVALID_ARGS", message: "Missing exchangeId or shouldContinue", details: nil))
+            return
+        }
+
+        let modifications = args["modifications"] as? [String: Any] ?? [:]
+        
+        // Call the stored result handler
+        if let completion = breakpointResolutions.removeValue(forKey: exchangeId) {
+            completion(.success([
+                "shouldContinue": shouldContinue,
+                "modifications": modifications
+            ]))
+        }
+        
+        result(nil)
+    }
+
+    // MARK: - Breakpoint Event Streaming
+
+    func sendBreakpointEvent(exchangeId: String, url: String, isRequest: Bool, exchangeData: [String: Any]) {
+        Task { @MainActor in
+            breakpointStreamHandler.sendBreakpointEvent(
+                data: [
+                    "exchangeId": exchangeId,
+                    "url": url,
+                    "isRequest": isRequest,
+                    "exchangeData": exchangeData
+                ]
+            )
         }
     }
 }

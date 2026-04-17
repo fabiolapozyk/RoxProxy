@@ -2,11 +2,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../app.dart';
 import '../models/proxy_settings.dart';
 import '../models/proxy_state.dart';
 import '../providers/exchange_provider.dart';
+import '../providers/proxy_channel_provider.dart';
 import '../providers/proxy_control_provider.dart';
 import '../providers/settings_provider.dart';
+import '../services/breakpoint_service.dart';
 import 'components/ca_warning_banner.dart';
 import 'components/status_bar.dart';
 import 'detail/detail_view.dart';
@@ -28,8 +31,22 @@ class _MainWindowState extends ConsumerState<MainWindow> {
   @override
   void initState() {
     super.initState();
-    // Handle the rare case where settings load completes before the first build.
+    
+    print('DEBUG: MainWindow.initState called');
+    
+    // Initialize breakpoint service with the proper navigator key
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      print('DEBUG: MainWindow post-frame callback executed');
+      
+      // Check if breakpoint service is available
+      try {
+        // This will trigger the provider creation if it hasn't been created yet
+        ref.read(breakpointServiceProvider);
+        print('DEBUG: Breakpoint service provider accessed successfully');
+      } catch (e) {
+        print('DEBUG: ERROR accessing breakpoint service: $e');
+      }
+      
       if (ref.read(settingsLoadedProvider)) _maybeAutoStart();
     });
   }

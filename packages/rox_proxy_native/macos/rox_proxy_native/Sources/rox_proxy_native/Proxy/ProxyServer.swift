@@ -15,7 +15,9 @@ final class ProxyServer {
     private let connectionTimeoutSeconds: Int
     // Snapshot of domain rules taken at start time (Sendable value type, safe to pass to NIO threads)
     private let domainRules: [DomainRule]
+    private let breakpoints: [Breakpoint]
     private let httpsInterceptionEnabled: Bool
+    private weak var methodHandler: ProxyMethodHandler?
 
     private var channel: Channel?
     private var group: MultiThreadedEventLoopGroup?
@@ -27,10 +29,12 @@ final class ProxyServer {
         port: Int,
         store: BridgeSessionStore,
         domainRules: [DomainRule] = [],
+        breakpoints: [Breakpoint] = [],
         connectionTimeoutSeconds: Int = 30,
         certificateAuthority: CertificateAuthority? = nil,
         domainCertCache: DomainCertificateCache? = nil,
-        httpsInterceptionEnabled: Bool = true
+        httpsInterceptionEnabled: Bool = true,
+        methodHandler: ProxyMethodHandler? = nil
     ) {
         self.port = port
         self.store = store
@@ -38,7 +42,9 @@ final class ProxyServer {
         self.domainCertCache = domainCertCache
         self.connectionTimeoutSeconds = connectionTimeoutSeconds
         self.domainRules = domainRules
+        self.breakpoints = breakpoints
         self.httpsInterceptionEnabled = httpsInterceptionEnabled
+        self.methodHandler = methodHandler
     }
 
     // MARK: - Lifecycle
@@ -68,14 +74,16 @@ final class ProxyServer {
                     .flatMap {
                         channel.pipeline.addHandler(HTTPResponseEncoder(), name: "HTTPResponseEncoder")
                     }
-                    .flatMap {
+                    .flatMap { [self] in
                         channel.pipeline.addHandler(
                             HTTPProxyHandler(
                                 store: store,
                                 certificateAuthority: ca,
                                 domainCertCache: certCache,
                                 domainRules: domainRules,
-                                httpsInterceptionEnabled: httpsEnabled
+                                breakpoints: breakpoints,
+                                httpsInterceptionEnabled: httpsEnabled,
+                                methodHandler: methodHandler
                             ),
                             name: "HTTPProxyHandler"
                         )

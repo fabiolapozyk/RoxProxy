@@ -33,20 +33,26 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
     let certificateAuthority: CertificateAuthority?
     let domainCertCache: DomainCertificateCache?
     let domainRules: [DomainRule]
+    let breakpoints: [Breakpoint]
     let httpsInterceptionEnabled: Bool
+    weak var methodHandler: ProxyMethodHandler?
 
     init(
         store: BridgeSessionStore,
         certificateAuthority: CertificateAuthority? = nil,
         domainCertCache: DomainCertificateCache? = nil,
         domainRules: [DomainRule] = [],
-        httpsInterceptionEnabled: Bool = true
+        breakpoints: [Breakpoint] = [],
+        httpsInterceptionEnabled: Bool = true,
+        methodHandler: ProxyMethodHandler? = nil
     ) {
         self.store = store
         self.certificateAuthority = certificateAuthority
         self.domainCertCache = domainCertCache
         self.domainRules = domainRules
+        self.breakpoints = breakpoints
         self.httpsInterceptionEnabled = httpsInterceptionEnabled
+        self.methodHandler = methodHandler
     }
 
     // MARK: - ChannelInboundHandler
@@ -135,7 +141,8 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
         )
 
         let store = self.store
-        Task { @MainActor in store.append(exchange) }
+        var mutableExchange = exchange
+        Task { @MainActor in store.append(mutableExchange) }
 
         // Build outbound request head (absolute URI → relative)
         var outHead = head
@@ -150,38 +157,43 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
             self.state = .idle
         }
 
-        // Connect to upstream on the same event loop
-        ClientBootstrap(group: context.eventLoop)
-            .channelInitializer { channel in
-                channel.pipeline.addHTTPClientHandlers().flatMap {
-                    channel.pipeline.addHandler(
-                        OutboundHTTPHandler(
-                            inboundContext: context,
+        // Check if we should break for this request
+        if shouldBreakForRequest(url: head.uri) {
+            handleBreakpoint(
+                exchange: mutableExchange,
+                isRequest: true,
+                context: context,
+                completion: { shouldContinue, modifications in
+                    if shouldContinue {
+                        self._continueWithUpstreamConnection(
+                            context: context,
+                            head: outHead,
+                            bodyParts: bodyParts,
+                            target: target,
+                            exchange: mutableExchange,
                             store: store,
-                            exchange: exchange,
                             onComplete: onComplete
                         )
-                    )
-                }
-            }
-            .connect(host: target.host, port: target.port)
-            .whenComplete { result in
-                switch result {
-                case .success(let upstreamChannel):
-                    upstreamChannel.write(NIOAny(HTTPClientRequestPart.head(outHead)), promise: nil)
-                    for buf in bodyParts {
-                        upstreamChannel.write(NIOAny(HTTPClientRequestPart.body(.byteBuffer(buf))), promise: nil)
+                    } else {
+                        // User cancelled the request - send a response to client
+                        print("BREAKPOINT CANCELLED: Request to \(head.uri)")
+                        self.sendResponse(context: context, status: .badRequest)
+                        onComplete()
                     }
-                    upstreamChannel.writeAndFlush(NIOAny(HTTPClientRequestPart.end(nil)), promise: nil)
-
-                case .failure(let error):
-                    exchange.state   = .failed(friendlyConnectionError(error, host: target.host))
-                    exchange.endTime = Date()
-                    Task { @MainActor in store.update(exchange) }
-                    self.sendResponse(context: context, status: .badGateway)
-                    onComplete()
                 }
-            }
+            )
+        } else {
+            // Connect to upstream on the same event loop
+            self._continueWithUpstreamConnection(
+                context: context,
+                head: outHead,
+                bodyParts: bodyParts,
+                target: target,
+                exchange: mutableExchange,
+                store: store,
+                onComplete: onComplete
+            )
+        }
     }
 
     // MARK: - CONNECT
@@ -320,7 +332,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
 
         let sslHandler   = NIOSSLServerHandler(context: sslContext)
         let setupHandler = MITMSetupHandler(
-            host: host, port: port, store: store
+            host: host, port: port, store: store, breakpoints: breakpoints, methodHandler: methodHandler
         )
 
         // Tell the client the tunnel is ready, then swap in TLS on this channel
@@ -367,6 +379,126 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
         context.write(wrapOutboundOut(.body(.byteBuffer(body))), promise: nil)
         context.writeAndFlush(wrapOutboundOut(.end(nil)), promise: nil)
         state = .idle
+    }
+
+    // MARK: - Breakpoint helpers
+
+    private func shouldBreakForRequest(url: String) -> Bool {
+        let matchingBreakpoints = breakpoints.filter { $0.matches(url: url) && ($0.trigger == .request || $0.trigger == .both) }
+        if !matchingBreakpoints.isEmpty {
+            print("DEBUG: Found matching breakpoints for request to \(url): \(matchingBreakpoints.map { "\($0.urlPattern) [\($0.trigger)]" }.joined(separator: ", "))")
+        }
+        return !matchingBreakpoints.isEmpty
+    }
+
+    private func shouldBreakForResponse(url: String) -> Bool {
+        let matchingBreakpoints = breakpoints.filter { $0.matches(url: url) && ($0.trigger == .response || $0.trigger == .both) }
+        if !matchingBreakpoints.isEmpty {
+            print("DEBUG: Found matching breakpoints for response from \(url): \(matchingBreakpoints.map { "\($0.urlPattern) [\($0.trigger)]" }.joined(separator: ", "))")
+        }
+        return !matchingBreakpoints.isEmpty
+    }
+
+    private func handleBreakpoint(
+        exchange: CapturedExchange,
+        isRequest: Bool,
+        context: ChannelHandlerContext,
+        completion: @escaping (Bool, [String: Any]?) -> Void
+    ) {
+        // Send breakpoint event to Flutter
+        print("DEBUG: BREAKPOINT HIT: \(isRequest ? "Request" : "Response") to \(exchange.url)")
+        print("DEBUG: Exchange ID: \(exchange.id.uuidString)")
+        print("DEBUG: Method: \(exchange.method)")
+        print("DEBUG: URL: \(exchange.url)")
+        
+        // Check if methodHandler is available
+        if methodHandler == nil {
+            print("DEBUG: ERROR: methodHandler is nil! Cannot send breakpoint event to Flutter.")
+            context.eventLoop.scheduleTask(in: .seconds(1)) {
+                print("DEBUG: Continuing without breakpoint dialog due to missing methodHandler")
+                completion(true, nil)
+            }
+            return
+        }
+        
+        // Convert exchange to dictionary for sending to Flutter
+        let exchangeData: [String: Any] = [
+            "id": exchange.id,
+            "method": exchange.method,
+            "url": exchange.url,
+            "scheme": exchange.scheme,
+            "host": exchange.host,
+            "port": exchange.port,
+            "path": exchange.path,
+            "requestHeaders": exchange.requestHeaders.map { ["name": $0.name, "value": $0.value] },
+            "statusCode": exchange.statusCode ?? 0,
+            "statusMessage": exchange.statusMessage ?? "",
+            "responseHeaders": exchange.responseHeaders?.map { ["name": $0.name, "value": $0.value] } ?? [],
+            "isHTTPS": exchange.isHTTPS,
+            "isMITMDecrypted": exchange.isMITMDecrypted
+        ]
+        
+        print("DEBUG: Sending breakpoint event to Flutter...")
+        
+        // Send event to Flutter
+        methodHandler?.sendBreakpointEvent(
+            exchangeId: exchange.id.uuidString,
+            url: exchange.url,
+            isRequest: isRequest,
+            exchangeData: exchangeData
+        )
+        
+        // Wait for resolution from Flutter
+        // For now, we'll continue after a delay to simulate the full flow
+        // In a complete implementation, we would wait for the actual response
+        context.eventLoop.scheduleTask(in: .seconds(5)) {
+            print("DEBUG: BREAKPOINT TIMEOUT: Continuing execution after waiting for Flutter response")
+            completion(true, nil)
+        }
+    }
+
+    private func _continueWithUpstreamConnection(
+        context: ChannelHandlerContext,
+        head: HTTPRequestHead,
+        bodyParts: [ByteBuffer],
+        target: (host: String, port: Int, relativePath: String),
+        exchange: CapturedExchange,
+        store: BridgeSessionStore,
+        onComplete: @escaping () -> Void
+    ) {
+        var mutableExchange = exchange
+        ClientBootstrap(group: context.eventLoop)
+            .channelInitializer { [self] channel in
+                channel.pipeline.addHTTPClientHandlers().flatMap {
+                    channel.pipeline.addHandler(
+                        OutboundHTTPHandler(
+                            inboundContext: context,
+                            store: store,
+                            exchange: exchange,
+                            breakpoints: breakpoints,
+                            onComplete: onComplete
+                        )
+                    )
+                }
+            }
+            .connect(host: target.host, port: target.port)
+            .whenComplete { [self] result in
+                switch result {
+                case .success(let upstreamChannel):
+                    upstreamChannel.write(NIOAny(HTTPClientRequestPart.head(head)), promise: nil)
+                    for buf in bodyParts {
+                        upstreamChannel.write(NIOAny(HTTPClientRequestPart.body(.byteBuffer(buf))), promise: nil)
+                    }
+                    upstreamChannel.writeAndFlush(NIOAny(HTTPClientRequestPart.end(nil)), promise: nil)
+
+                case .failure(let error):
+                    mutableExchange.state   = .failed(friendlyConnectionError(error, host: target.host))
+                    mutableExchange.endTime = Date()
+                    Task { @MainActor in store.update(mutableExchange) }
+                    self.sendResponse(context: context, status: .badGateway)
+                    onComplete()
+                }
+            }
     }
 
     // MARK: - Shared helpers

@@ -35,4 +35,12 @@ final class ExchangeStreamHandler: NSObject, FlutterStreamHandler {
         ]
         sink(dict as Any)
     }
+
+    /// Called from ProxyMethodHandler when a breakpoint is hit.
+    func sendEvent(type: String, data: [String: Any]) {
+        guard let sink = eventSink else { return }
+        var dict = data
+        dict["type"] = type
+        sink(dict as Any)
+    }
 }

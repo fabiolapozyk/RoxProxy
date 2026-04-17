@@ -16,11 +16,15 @@ final class MITMSetupHandler: ChannelInboundHandler, RemovableChannelHandler {
     let host: String
     let port: Int
     let store: BridgeSessionStore
+    let breakpoints: [Breakpoint]
+    weak var methodHandler: ProxyMethodHandler?
 
-    init(host: String, port: Int, store: BridgeSessionStore) {
+    init(host: String, port: Int, store: BridgeSessionStore, breakpoints: [Breakpoint] = [], methodHandler: ProxyMethodHandler? = nil) {
         self.host = host
         self.port = port
         self.store = store
+        self.breakpoints = breakpoints
+        self.methodHandler = methodHandler
     }
 
     func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
@@ -39,6 +43,7 @@ final class MITMSetupHandler: ChannelInboundHandler, RemovableChannelHandler {
         let host = self.host
         let port = self.port
         let store = self.store
+        let breakpoints = self.breakpoints
 
         // Insert handlers after self (i.e. at .last), then remove self.
         // Pipeline after upgrade: NIOSSLServerHandler → HTTPRequestDecoder
@@ -55,9 +60,9 @@ final class MITMSetupHandler: ChannelInboundHandler, RemovableChannelHandler {
                 position: .last
             )
         }
-        .flatMap {
+        .flatMap { [self] in
             pipeline.addHandler(
-                MITMHandler(host: host, port: port, store: store),
+                MITMHandler(host: host, port: port, store: store, breakpoints: breakpoints, methodHandler: self.methodHandler),
                 name: "MITMHandler",
                 position: .last
             )
@@ -89,11 +94,15 @@ final class MITMHandler: ChannelInboundHandler {
     let host: String
     let port: Int
     let store: BridgeSessionStore
+    let breakpoints: [Breakpoint]
+    weak var methodHandler: ProxyMethodHandler?
 
-    init(host: String, port: Int, store: BridgeSessionStore) {
+    init(host: String, port: Int, store: BridgeSessionStore, breakpoints: [Breakpoint] = [], methodHandler: ProxyMethodHandler? = nil) {
         self.host = host
         self.port = port
         self.store = store
+        self.breakpoints = breakpoints
+        self.methodHandler = methodHandler
     }
 
     // MARK: - ChannelInboundHandler
@@ -193,12 +202,14 @@ final class MITMHandler: ChannelInboundHandler {
                     let ssl = try NIOSSLClientHandler(context: sslContext, serverHostname: host)
                     return channel.pipeline.addHandler(ssl)
                         .flatMap { channel.pipeline.addHTTPClientHandlers() }
-                        .flatMap {
+                        .flatMap { [self] in
                             channel.pipeline.addHandler(
                                 OutboundHTTPHandler(
                                     inboundContext: context,
                                     store: store,
                                     exchange: exchange,
+                                    breakpoints: breakpoints,
+                                    methodHandler: methodHandler,
                                     onComplete: onComplete
                                 )
                             )

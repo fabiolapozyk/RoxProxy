@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'breakpoint_list_view.dart';
 import 'certificate_setup_view.dart';
 import 'domain_list_view.dart';
 import 'general_settings.dart';
@@ -18,7 +19,7 @@ class _SettingsViewState extends State<SettingsView>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
   }
 
   @override
@@ -40,6 +41,7 @@ class _SettingsViewState extends State<SettingsView>
               const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
           tabs: const [
             Tab(text: 'General'),
+            Tab(text: 'Breakpoints'),
             Tab(text: 'HTTPS Domains'),
             Tab(text: 'Certificate'),
           ],
@@ -50,6 +52,7 @@ class _SettingsViewState extends State<SettingsView>
             controller: _tabController,
             children: const [
               GeneralSettings(),
+              BreakpointListView(),
               DomainListView(),
               CertificateSetupView(),
             ],

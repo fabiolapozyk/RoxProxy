@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../models/breakpoint.dart';
 import '../../models/captured_exchange.dart';
 import '../../models/replay_request.dart';
 import '../../providers/exchange_provider.dart';
 import '../../providers/proxy_channel_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../utils/data_formatting.dart';
+import '../components/https_indicator.dart';
 import '../components/https_indicator.dart';
 import '../components/method_badge.dart';
 import '../components/status_indicator.dart';
@@ -249,6 +251,8 @@ class _ExchangeRow extends ConsumerWidget {
 
   bool get _canAddDomain => exchange.isHTTPS && !exchange.isMITMDecrypted;
 
+  bool get _canToggleBreakpoint => true; // Can always toggle breakpoints
+
   bool get _canReplay => exchange.state == ExchangeState.completed && 
                          !(exchange.isHTTPS && !exchange.isMITMDecrypted && exchange.method == 'CONNECT');
 
@@ -287,11 +291,13 @@ class _ExchangeRow extends ConsumerWidget {
 
   void _showContextMenu(
       BuildContext context, WidgetRef ref, Offset globalPosition) async {
-    if (!_canCopyCurl && !_canAddDomain) return;
+    if (!_canCopyCurl && !_canCopyUrl && !_canAddDomain && !_canToggleBreakpoint) return;
 
     final settings = ref.read(settingsProvider);
     final alreadyIntercepted =
         settings.domainRules.any((r) => r.domain == exchange.host);
+    final hasBreakpoint =
+        settings.breakpoints.any((b) => b.matches(exchange.url));
 
     final overlay =
         Overlay.of(context).context.findRenderObject() as RenderBox;
@@ -334,6 +340,22 @@ class _ExchangeRow extends ConsumerWidget {
             value: 'replay',
             child: Text('Edit and Replay', style: TextStyle(fontSize: 13)),
           ),
+        if (_canToggleBreakpoint && !hasBreakpoint)
+          PopupMenuItem<String>(
+            value: 'add_breakpoint',
+            child: Text(
+              'Add breakpoint for this URL',
+              style: const TextStyle(fontSize: 13),
+            ),
+          ),
+        if (_canToggleBreakpoint && hasBreakpoint)
+          PopupMenuItem<String>(
+            value: 'remove_breakpoint',
+            child: Text(
+              'Remove breakpoint for this URL',
+              style: const TextStyle(fontSize: 13),
+            ),
+          ),
       ],
     );
 
@@ -352,6 +374,24 @@ class _ExchangeRow extends ConsumerWidget {
       );
     } else if (result == 'replay') {
       await _showReplayDialog(context, ref);
+    } else if (result == 'add_breakpoint') {
+      ref.read(settingsProvider.notifier).addBreakpoint(exchange.url, BreakpointTrigger.both);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Breakpoint added for this URL'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    } else if (result == 'remove_breakpoint') {
+      ref.read(settingsProvider.notifier).removeBreakpoint(
+        ref.read(settingsProvider).breakpoints.firstWhere((b) => b.matches(exchange.url)).id
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Breakpoint removed for this URL'),
+          duration: Duration(seconds: 2),
+        ),
+      );
     }
   }
 
@@ -426,9 +466,15 @@ class _ExchangeRow extends ConsumerWidget {
           children: [
             SizedBox(
               width: 20,
-              child: HttpsIndicator(
-                isHTTPS: exchange.isHTTPS,
-                isMITMDecrypted: exchange.isMITMDecrypted,
+              child: Row(
+                children: [
+                  HttpsIndicator(
+                    isHTTPS: exchange.isHTTPS,
+                    isMITMDecrypted: exchange.isMITMDecrypted,
+                  ),
+                  if (ref.read(settingsProvider).breakpoints.any((b) => b.matches(exchange.url)))
+                    const Icon(Icons.fiber_manual_record, size: 8, color: Colors.orange),
+                ],
               ),
             ),
             const SizedBox(width: 8),

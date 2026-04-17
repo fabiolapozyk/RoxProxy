@@ -1,8 +1,10 @@
 import 'domain_rule.dart';
+import 'breakpoint.dart';
 
 class ProxySettings {
   int port;
   List<DomainRule> domainRules;
+  List<Breakpoint> breakpoints;
   bool isRecording;
   int maxExchanges;
   bool autoStartProxy;
@@ -13,17 +15,20 @@ class ProxySettings {
   ProxySettings({
     this.port = 8080,
     List<DomainRule>? domainRules,
+    List<Breakpoint>? breakpoints,
     this.isRecording = true,
     this.maxExchanges = 10000,
     this.autoStartProxy = true,
     this.connectionTimeoutSeconds = 30,
     this.setSystemProxy = false,
     this.httpsInterceptionEnabled = true,
-  }) : domainRules = domainRules ?? [];
+  }) : domainRules = domainRules ?? [],
+       breakpoints = breakpoints ?? [];
 
   Map<String, dynamic> toJson() => {
         'port': port,
         'domainRules': domainRules.map((r) => r.toMap()).toList(),
+        'breakpoints': breakpoints.map((b) => b.toMap()).toList(),
         'isRecording': isRecording,
         'maxExchanges': maxExchanges,
         'autoStartProxy': autoStartProxy,
@@ -38,6 +43,10 @@ class ProxySettings {
                 ?.map((e) => DomainRule.fromMap(Map<String, dynamic>.from(e as Map)))
                 .toList() ??
             [],
+        breakpoints: (json['breakpoints'] as List<dynamic>?)
+                ?.map((e) => Breakpoint.fromMap(Map<String, dynamic>.from(e as Map)))
+                .toList() ??
+            [],
         isRecording: json['isRecording'] as bool? ?? true,
         maxExchanges: json['maxExchanges'] as int? ?? 10000,
         autoStartProxy: json['autoStartProxy'] as bool? ?? true,
@@ -49,6 +58,7 @@ class ProxySettings {
   ProxySettings copyWith({
     int? port,
     List<DomainRule>? domainRules,
+    List<Breakpoint>? breakpoints,
     bool? isRecording,
     int? maxExchanges,
     bool? autoStartProxy,
@@ -59,6 +69,7 @@ class ProxySettings {
       ProxySettings(
         port: port ?? this.port,
         domainRules: domainRules ?? this.domainRules,
+        breakpoints: breakpoints ?? this.breakpoints,
         isRecording: isRecording ?? this.isRecording,
         maxExchanges: maxExchanges ?? this.maxExchanges,
         autoStartProxy: autoStartProxy ?? this.autoStartProxy,
