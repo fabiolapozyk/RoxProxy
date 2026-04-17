@@ -374,21 +374,12 @@ class _ExchangeRow extends ConsumerWidget {
     ref.read(breakpointProvider.notifier).addRule(rule);
     
     // Show confirmation
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Breakpoint added for ${rule.urlPattern}'),
-          duration: const Duration(seconds: 2),
-          action: SnackBarAction(
-            label: 'VIEW',
-            onPressed: () {
-              // TODO: Navigate to settings > breakpoints tab
-              ScaffoldMessenger.of(context).hideCurrentSnackBar();
-            },
-          ),
-        ),
-      );
-    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Breakpoint added for ${rule.urlPattern}'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   Future<void> _showReplayDialog(BuildContext context, WidgetRef ref) async {

@@ -19,6 +19,7 @@ final breakpointInterceptorProvider = Provider<BreakpointInterceptor>((ref) {
 class BreakpointInterceptor {
   final Ref _ref;
   late final ProxyChannel _proxyChannel;
+  final Set<String> _shownDialogs = {}; // Track which exchanges have shown dialogs
 
   BreakpointInterceptor(this._ref) {
     _proxyChannel = _ref.read(proxyChannelProvider);
@@ -26,6 +27,12 @@ class BreakpointInterceptor {
 
   void checkExchange(CapturedExchange exchange) {
     debugPrint('[Breakpoint] Checking exchange: ${exchange.url}');
+    
+    // Prevent duplicate dialogs for the same exchange
+    if (_shownDialogs.contains(exchange.id)) {
+      debugPrint('[Breakpoint] Already shown dialog for this exchange, skipping');
+      return;
+    }
     
     final rules = _ref.read(breakpointProvider);
     debugPrint('[Breakpoint] Active rules: ${rules.length}');
@@ -50,6 +57,7 @@ class BreakpointInterceptor {
         // In production, this will be handled by native layer pausing the exchange
         if (rule.interceptRequest || rule.interceptResponse) {
           debugPrint('[Breakpoint] Showing dialog for ${rule.interceptRequest ? 'request' : 'response'}');
+          _shownDialogs.add(exchange.id); // Mark as shown
           _showBreakpointDialog(context, exchange, rule.interceptRequest);
           return;
         }
@@ -67,9 +75,6 @@ class BreakpointInterceptor {
     // Bring window to front before showing dialog
     _proxyChannel.bringWindowToFront();
     
-    // Play a sound and flash the window to get attention
-    _playBreakpointSound();
-    
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -84,12 +89,6 @@ class BreakpointInterceptor {
         print('[Breakpoint] Exchange ${exchange.id} was cancelled');
       }
     });
-  }
-
-  void _playBreakpointSound() {
-    // This would play a system sound on macOS
-    // For now, we'll just log it
-    print('[Breakpoint] Playing attention sound...');
   }
 }
 
