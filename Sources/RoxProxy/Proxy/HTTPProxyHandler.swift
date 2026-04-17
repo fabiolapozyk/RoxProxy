@@ -3,6 +3,7 @@ import NIOCore
 import NIOPosix
 import NIOHTTP1
 import NIOSSL
+import Logging
 
 /// Main proxy channel handler.
 ///
@@ -34,19 +35,25 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
     let certificateAuthority: CertificateAuthority?
     let domainCertCache: DomainCertificateCache?
     let domainRules: [DomainRule]
+    let webSocketServer: WebSocketServer?
+    private let logger: Logger
 
     init(
         store: ProxySessionStore,
         settingsStore: SettingsStore,
         certificateAuthority: CertificateAuthority? = nil,
         domainCertCache: DomainCertificateCache? = nil,
-        domainRules: [DomainRule] = []
+        domainRules: [DomainRule] = [],
+        webSocketServer: WebSocketServer? = nil,
+        logger: Logger = Logger(label: "com.roxproxy.HTTPProxyHandler")
     ) {
         self.store = store
         self.settingsStore = settingsStore
         self.certificateAuthority = certificateAuthority
         self.domainCertCache = domainCertCache
         self.domainRules = domainRules
+        self.webSocketServer = webSocketServer
+        self.logger = logger
     }
 
     // MARK: - ChannelInboundHandler
@@ -128,6 +135,11 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
 
         let store = self.store
         Task { @MainActor in store.append(exchange) }
+
+        // Check if we should trigger a breakpoint for this request
+        if let webSocketServer = self.webSocketServer, shouldBreakpointRequest(head: head) {
+            return handleBreakpoint(context: context, head: head, bodyParts: bodyParts, exchange: exchange, target: target)
+        }
 
         // Build outbound request head (absolute URI → relative)
         var outHead = head
@@ -381,5 +393,186 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
         let host  = String(parts.first ?? "localhost")
         let port  = parts.count > 1 ? Int(parts[1]) ?? 80 : 80
         return (host: host, port: port, relativePath: uri)
+    }
+
+    // MARK: - Breakpoint Support
+
+    private func shouldBreakpointRequest(head: HTTPRequestHead) -> Bool {
+        // For now, breakpoint on all requests for testing
+        // In production, you might want to add filters based on URL patterns, methods, etc.
+        return true
+    }
+
+    private func handleBreakpoint(
+        context: ChannelHandlerContext,
+        head: HTTPRequestHead,
+        bodyParts: [ByteBuffer],
+        exchange: CapturedExchange,
+        target: (host: String, port: Int, relativePath: String)
+    ) {
+        guard let webSocketServer = self.webSocketServer else {
+            // No WebSocket server available, proceed normally
+            return proceedWithRequest(context: context, head: head, bodyParts: bodyParts, exchange: exchange, target: target)
+        }
+
+        // Convert headers to dictionary
+        var headersDict: [String: String] = [:]
+        for (name, value) in head.headers {
+            headersDict[name] = value
+        }
+
+        // Convert body to string
+        let bodyString: String?
+        if let bodyData = exchange.requestBody?.data, let bodyStr = String(data: bodyData, encoding: .utf8) {
+            bodyString = bodyStr
+        } else {
+            bodyString = nil
+        }
+
+        // Create breakpoint request
+        let breakpointRequest = BreakpointRequest(
+            exchangeId: exchange.id,
+            type: .request,
+            method: head.method.rawValue,
+            url: head.uri,
+            headers: headersDict,
+            body: bodyString,
+            isRequest: true
+        )
+
+        // Register handler for response
+        let promise = context.eventLoop.makePromise(of: BreakpointResponse.self)
+        
+        webSocketServer.registerBreakpointHandler(breakpointRequest.id) { response in
+            promise.succeed(response)
+        }
+
+        // Send breakpoint request to Flutter (we'll need to implement this)
+        // For now, we'll simulate a WebSocket connection
+        
+        // Wait for user response with timeout
+        let timeoutTask = context.eventLoop.scheduleTask(in: .seconds(30)) {
+            promise.fail(BreakpointError.timeout)
+        }
+
+        promise.futureResult.whenComplete { result in
+            timeoutTask.cancel()
+            
+            switch result {
+            case .success(let response):
+                self.handleBreakpointResponse(context: context, head: head, bodyParts: bodyParts, exchange: exchange, target: target, response: response)
+            case .failure(let error):
+                self.logger.error("Breakpoint failed: \(error)")
+                // Proceed with original request on timeout/error
+                self.proceedWithRequest(context: context, head: head, bodyParts: bodyParts, exchange: exchange, target: target)
+            }
+        }
+    }
+
+    private func handleBreakpointResponse(
+        context: ChannelHandlerContext,
+        head: HTTPRequestHead,
+        bodyParts: [ByteBuffer],
+        exchange: CapturedExchange,
+        target: (host: String, port: Int, relativePath: String),
+        response: BreakpointResponse
+    ) {
+        switch response.action {
+        case .proceed:
+            // Apply modifications and proceed
+            let modifiedHead = applyModifications(to: head, response: response)
+            proceedWithRequest(context: context, head: modifiedHead, bodyParts: bodyParts, exchange: exchange, target: target)
+        case .cancel:
+            // Cancel the request
+            sendResponse(context: context, status: .badRequest)
+            state = .idle
+        }
+    }
+
+    private func applyModifications(to head: HTTPRequestHead, response: BreakpointResponse) -> HTTPRequestHead {
+        var modifiedHead = head
+        
+        if let method = response.modifiedMethod {
+            modifiedHead.method = HTTPMethod(rawValue: method) ?? head.method
+        }
+        
+        if let url = response.modifiedUrl, let target = Self.parseTarget(uri: url, headers: modifiedHead.headers) {
+            modifiedHead.uri = target.relativePath
+            // Update Host header if URL changed
+            modifiedHead.headers.replaceOrAdd(name: "Host", value: "\(target.host):\(target.port)")
+        }
+        
+        if let headers = response.modifiedHeaders {
+            for (name, value) in headers {
+                modifiedHead.headers.replaceOrAdd(name: name, value: value)
+            }
+        }
+        
+        return modifiedHead
+    }
+
+    private func proceedWithRequest(
+        context: ChannelHandlerContext,
+        head: HTTPRequestHead,
+        bodyParts: [ByteBuffer],
+        exchange: CapturedExchange,
+        target: (host: String, port: Int, relativePath: String)
+    ) {
+        state = .forwarding
+
+        // Pause reads while we're waiting for the upstream connection
+        _ = context.channel.setOption(ChannelOptions.autoRead, value: false)
+
+        // Build outbound request head (absolute URI → relative)
+        var outHead = head
+        outHead.uri = target.relativePath
+        outHead.headers.remove(name: "Proxy-Connection")
+        outHead.headers.remove(name: "Proxy-Authorization")
+        outHead.headers.replaceOrAdd(name: "Connection", value: "close")
+
+        let onComplete = { [weak self] in
+            guard let self else { return }
+            _ = context.channel.setOption(ChannelOptions.autoRead, value: true)
+            self.state = .idle
+        }
+
+        // Connect to upstream on the same event loop
+        ClientBootstrap(group: context.eventLoop)
+            .channelInitializer { channel in
+                channel.pipeline.addHTTPClientHandlers().flatMap {
+                    channel.pipeline.addHandler(
+                        OutboundHTTPHandler(
+                            inboundContext: context,
+                            store: store,
+                            exchange: exchange,
+                            onComplete: onComplete
+                        )
+                    )
+                }
+            }
+            .connect(host: target.host, port: target.port)
+            .whenComplete { result in
+                switch result {
+                case .success(let upstreamChannel):
+                    upstreamChannel.write(NIOAny(HTTPClientRequestPart.head(outHead)), promise: nil)
+                    for buf in bodyParts {
+                        upstreamChannel.write(NIOAny(HTTPClientRequestPart.body(.byteBuffer(buf))), promise: nil)
+                    }
+                    upstreamChannel.writeAndFlush(NIOAny(HTTPClientRequestPart.end(nil)), promise: nil)
+
+                case .failure(let error):
+                    var failed = exchange
+                    failed.state   = .failed(error.localizedDescription)
+                    failed.endTime = Date()
+                    Task { @MainActor in store.update(failed) }
+                    self.sendResponse(context: context, status: .badGateway)
+                    onComplete()
+                }
+            }
+    }
+
+    private enum BreakpointError: Error {
+        case timeout
+        case websocketNotAvailable
     }
 }

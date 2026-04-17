@@ -2,6 +2,8 @@ import Foundation
 import NIOCore
 import NIOPosix
 import NIOHTTP1
+import NIOWebSocket
+import Logging
 
 /// Manages the lifecycle of the local HTTP proxy server built on SwiftNIO.
 final class ProxyServer {
@@ -16,9 +18,11 @@ final class ProxyServer {
     private let connectionTimeoutSeconds: Int
     // Snapshot of domain rules taken at start time (Sendable value type, safe to pass to NIO threads)
     private let domainRules: [DomainRule]
+    private let websocketPort: Int
 
     private var channel: Channel?
     private var group: MultiThreadedEventLoopGroup?
+    private var webSocketServer: WebSocketServer?
 
     // MARK: - Init
 
@@ -29,7 +33,8 @@ final class ProxyServer {
         store: ProxySessionStore,
         settingsStore: SettingsStore,
         certificateAuthority: CertificateAuthority? = nil,
-        domainCertCache: DomainCertificateCache? = nil
+        domainCertCache: DomainCertificateCache? = nil,
+        websocketPort: Int = 8081
     ) {
         self.port = port
         self.store = store
@@ -38,6 +43,7 @@ final class ProxyServer {
         self.domainCertCache = domainCertCache
         self.connectionTimeoutSeconds = settingsStore.settings.connectionTimeoutSeconds
         self.domainRules = settingsStore.settings.domainRules
+        self.websocketPort = websocketPort
     }
 
     // MARK: - Lifecycle
@@ -54,6 +60,18 @@ final class ProxyServer {
         let certCache     = self.domainCertCache
         let domainRules   = self.domainRules
         let timeoutSecs   = self.connectionTimeoutSeconds
+        let websocketPort = self.websocketPort
+
+        // Start WebSocket server for breakpoint communication
+        let webSocketServer = WebSocketServer(group: group, logger: Logger(label: "com.roxproxy.WebSocketServer"))
+        self.webSocketServer = webSocketServer
+        
+        try webSocketServer.start(port: websocketPort)
+        catch {
+            try? await group.shutdownGracefully()
+            self.group = nil
+            throw ProxyError.websocketFailed(port: websocketPort, underlying: error)
+        }
 
         let bootstrap = ServerBootstrap(group: group)
             .serverChannelOption(ChannelOptions.backlog, value: 256)
@@ -74,7 +92,8 @@ final class ProxyServer {
                                 settingsStore: settingsStore,
                                 certificateAuthority: ca,
                                 domainCertCache: certCache,
-                                domainRules: domainRules
+                                domainRules: domainRules,
+                                webSocketServer: webSocketServer
                             ),
                             name: "HTTPProxyHandler"
                         )
@@ -99,6 +118,8 @@ final class ProxyServer {
     /// Stops the proxy server gracefully.
     func stop() async throws {
         try await channel?.close().get()
+        webSocketServer?.stop()
+        webSocketServer = nil
         try await group?.shutdownGracefully()
         channel = nil
         group = nil
@@ -108,11 +129,14 @@ final class ProxyServer {
 
     enum ProxyError: Error, LocalizedError {
         case bindFailed(port: Int, underlying: Error)
+        case websocketFailed(port: Int, underlying: Error)
 
         var errorDescription: String? {
             switch self {
             case .bindFailed(let port, let underlying):
                 return "Cannot bind proxy on port \(port): \(underlying.localizedDescription). Try a different port in Settings."
+            case .websocketFailed(let port, let underlying):
+                return "Cannot start WebSocket server on port \(port): \(underlying.localizedDescription)."
             }
         }
     }

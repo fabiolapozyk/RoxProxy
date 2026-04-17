@@ -4,14 +4,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/proxy_settings.dart';
 import '../models/proxy_state.dart';
+import '../models/breakpoint_request.dart';
 import '../providers/exchange_provider.dart';
 import '../providers/proxy_control_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/breakpoint_provider.dart';
 import 'components/ca_warning_banner.dart';
 import 'components/status_bar.dart';
 import 'detail/detail_view.dart';
 import 'request_list/request_list_view.dart';
 import 'settings/settings_view.dart';
+import 'breakpoint_dialog.dart';
 
 class MainWindow extends ConsumerStatefulWidget {
   const MainWindow({super.key});
@@ -31,6 +34,14 @@ class _MainWindowState extends ConsumerState<MainWindow> {
     // Handle the rare case where settings load completes before the first build.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (ref.read(settingsLoadedProvider)) _maybeAutoStart();
+    });
+    
+    // Connect to WebSocket server when the app starts
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final breakpointService = ref.read(breakpointServiceProvider);
+      breakpointService.connect().catchError((error) {
+        debugPrint('Failed to connect to WebSocket server: $error');
+      });
     });
   }
 
@@ -73,12 +84,34 @@ class _MainWindowState extends ConsumerState<MainWindow> {
       ),
     );
   }
+  
+  void _showBreakpointDialog(BreakpointRequest request) {
+    final breakpointService = ref.read(breakpointServiceProvider);
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false, // Prevent dismissing without action
+      builder: (context) => BreakpointDialog(
+        request: request,
+        breakpointService: breakpointService,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     // Auto-start once settings are loaded from disk (ref.listen is valid here).
     ref.listen(settingsLoadedProvider, (_, isLoaded) {
       if (isLoaded) _maybeAutoStart();
+    });
+    
+    // Listen for breakpoint requests
+    ref.listen(breakpointRequestsProvider, (_, next) {
+      next.whenData((request) {
+        if (request != null) {
+          _showBreakpointDialog(request);
+        }
+      });
     });
 
     final proxyState = ref.watch(proxyStateProvider);

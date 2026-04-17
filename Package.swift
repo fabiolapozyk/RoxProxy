@@ -15,6 +15,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-certificates.git", from: "1.5.0"),
         .package(url: "https://github.com/apple/swift-asn1.git", from: "1.0.0"),
         .package(url: "https://github.com/apple/swift-crypto.git", from: "3.2.0"),
+        .package(url: "https://github.com/apple/swift-log.git", from: "1.0.0"),
     ],
     targets: [
         .executableTarget(
@@ -24,10 +25,12 @@ let package = Package(
                 .product(name: "NIOPosix", package: "swift-nio"),
                 .product(name: "NIOHTTP1", package: "swift-nio"),
                 .product(name: "NIOTLS", package: "swift-nio"),
+                .product(name: "NIOWebSocket", package: "swift-nio"),
                 .product(name: "NIOSSL", package: "swift-nio-ssl"),
                 .product(name: "X509", package: "swift-certificates"),
                 .product(name: "SwiftASN1", package: "swift-asn1"),
                 .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "Logging", package: "swift-log"),
             ],
             path: "Sources/RoxProxy"
         ),

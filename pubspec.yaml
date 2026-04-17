@@ -2,7 +2,7 @@ name: rox_proxy
 description: "RoxProxy — HTTP/HTTPS intercepting proxy for macOS."
 publish_to: 'none'
 
-version: 0.0.5+5
+version: 0.0.6+6
 
 environment:
   sdk: ^3.11.3
@@ -21,6 +21,10 @@ dependencies:
 
   # JSON + UUID
   uuid: ^4.5.1
+  json_annotation: ^4.9.0
+  
+  # WebSocket
+  web_socket_channel: ^2.4.0
 
   # Path for Application Support directory
   path_provider: ^2.1.5
@@ -32,6 +36,7 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^6.0.0
   riverpod_generator: ^2.6.1
+  json_serializable: ^6.8.0
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

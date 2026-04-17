@@ -48,6 +48,7 @@ final class ProxyMethodHandler: NSObject {
         case "releaseAllBodies": releaseAllBodies(result: result)
         case "decompressBody":  decompressBody(call, result: result)
         case "replayRequest":   replayRequest(call, result: result)
+        case "getWebSocketPort": getWebSocketPort(call, result: result)
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -302,5 +303,13 @@ final class ProxyMethodHandler: NSObject {
                 ))
             }
         }
+    }
+
+    // MARK: - Breakpoint WebSocket
+
+    private func getWebSocketPort(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+        // For now, return the default WebSocket port
+        // In a real implementation, you might want to get this from the server
+        result(["port": 8081])
     }
 }

@@ -124,4 +124,11 @@ class ProxyChannel {
     final result = await _method.invokeMethod<Map>('replayRequest', request);
     return result?['exchangeId'] as String? ?? '';
   }
+  
+  // MARK: - Breakpoint WebSocket
+  
+  Future<int> getWebSocketPort() async {
+    final result = await _method.invokeMethod<Map>('getWebSocketPort');
+    return result?['port'] as int? ?? 8081;
+  }
 }

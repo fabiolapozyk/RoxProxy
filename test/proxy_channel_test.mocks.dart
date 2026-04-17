@@ -165,4 +165,25 @@ class MockProxyChannel extends _i1.Mock implements _i2.ProxyChannel {
             returnValue: _i3.Future<_i6.Uint8List?>.value(),
           )
           as _i3.Future<_i6.Uint8List?>);
+
+  @override
+  _i3.Future<String> replayRequest(Map<String, dynamic>? request) =>
+      (super.noSuchMethod(
+            Invocation.method(#replayRequest, [request]),
+            returnValue: _i3.Future<String>.value(
+              _i5.dummyValue<String>(
+                this,
+                Invocation.method(#replayRequest, [request]),
+              ),
+            ),
+          )
+          as _i3.Future<String>);
+
+  @override
+  _i3.Future<int> getWebSocketPort() =>
+      (super.noSuchMethod(
+            Invocation.method(#getWebSocketPort, []),
+            returnValue: _i3.Future<int>.value(0),
+          )
+          as _i3.Future<int>);
 }
