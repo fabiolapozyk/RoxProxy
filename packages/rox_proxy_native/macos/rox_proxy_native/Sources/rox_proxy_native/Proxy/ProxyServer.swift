@@ -16,6 +16,8 @@ final class ProxyServer {
     // Snapshot of domain rules taken at start time (Sendable value type, safe to pass to NIO threads)
     private let domainRules: [DomainRule]
     private let httpsInterceptionEnabled: Bool
+    // Breakpoint rules (Sendable value type, safe to pass to NIO threads)
+    private var breakpointRules: [BreakpointRule] = []
 
     private var channel: Channel?
     private var group: MultiThreadedEventLoopGroup?
@@ -30,7 +32,8 @@ final class ProxyServer {
         connectionTimeoutSeconds: Int = 30,
         certificateAuthority: CertificateAuthority? = nil,
         domainCertCache: DomainCertificateCache? = nil,
-        httpsInterceptionEnabled: Bool = true
+        httpsInterceptionEnabled: Bool = true,
+        breakpointRules: [BreakpointRule] = []
     ) {
         self.port = port
         self.store = store
@@ -39,6 +42,7 @@ final class ProxyServer {
         self.connectionTimeoutSeconds = connectionTimeoutSeconds
         self.domainRules = domainRules
         self.httpsInterceptionEnabled = httpsInterceptionEnabled
+        self.breakpointRules = breakpointRules
     }
 
     // MARK: - Lifecycle
@@ -75,7 +79,8 @@ final class ProxyServer {
                                 certificateAuthority: ca,
                                 domainCertCache: certCache,
                                 domainRules: domainRules,
-                                httpsInterceptionEnabled: httpsEnabled
+                                httpsInterceptionEnabled: httpsEnabled,
+                                breakpointRules: self.breakpointRules
                             ),
                             name: "HTTPProxyHandler"
                         )
@@ -138,6 +143,61 @@ final class ProxyServer {
         } else {
             throw NSError(domain: "com.roxproxy", code: 4, userInfo: [NSLocalizedDescriptionKey: "Unknown response type"])
         }
+    }
+
+    // MARK: - Breakpoint Management
+
+    /// Set breakpoint rules from Flutter
+    func setBreakpointRules(_ rules: [BreakpointRule]) {
+        breakpointRules = rules
+        
+        // Propagate to HTTP handler
+        // Note: This assumes we have a reference to the HTTP handler
+        // In the actual implementation, you would need to:
+        // 1. Store a reference to the HTTP handler when it's created
+        // 2. Call updateBreakpointRules on it
+        print("✅ ProxyServer: Breakpoint rules updated: \(rules.count) rules")
+    }
+
+    /// Check if a URL should pause for breakpoint
+    func shouldPauseExchange(url: String, isRequest: Bool) -> BreakpointRule? {
+        for rule in breakpointRules {
+            if !rule.isEnabled { continue }
+            if rule.matches(url: url) {
+                if (isRequest && rule.interceptRequest) || (!isRequest && rule.interceptResponse) {
+                    return rule
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Pause an exchange (to be implemented with actual pausing logic)
+    func pauseExchange(exchangeId: String, exchange: CapturedExchange) {
+        // This would pause the actual exchange
+        // For now, just log it
+        print("⏸️  Exchange would be paused: \(exchangeId)")
+    }
+
+    /// Resume a paused exchange
+    func resumeExchange(exchangeId: String, modifications: [String: Any]?) {
+        // This would resume the actual exchange with modifications
+        // For now, just log it
+        print("▶️  Exchange would be resumed: \(exchangeId) with modifications: \(modifications ?? [:])")
+    }
+
+    /// Cancel a paused exchange
+    func cancelExchange(exchangeId: String) {
+        // This would cancel the actual exchange
+        // For now, just log it
+        print("⏹️  Exchange would be cancelled: \(exchangeId)")
+    }
+
+    /// Bring window to front
+    func bringWindowToFront() {
+        // This would bring the window to front
+        // Implementation is in the extension
+        print("🪟 Window would be brought to front")
     }
 
     // MARK: - Errors

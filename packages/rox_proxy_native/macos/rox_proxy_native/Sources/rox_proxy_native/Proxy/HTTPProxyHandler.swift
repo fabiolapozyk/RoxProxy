@@ -34,19 +34,22 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
     let domainCertCache: DomainCertificateCache?
     let domainRules: [DomainRule]
     let httpsInterceptionEnabled: Bool
+    private var breakpointRules: [BreakpointRule]
 
     init(
         store: BridgeSessionStore,
         certificateAuthority: CertificateAuthority? = nil,
         domainCertCache: DomainCertificateCache? = nil,
         domainRules: [DomainRule] = [],
-        httpsInterceptionEnabled: Bool = true
+        httpsInterceptionEnabled: Bool = true,
+        breakpointRules: [BreakpointRule] = []
     ) {
         self.store = store
         self.certificateAuthority = certificateAuthority
         self.domainCertCache = domainCertCache
         self.domainRules = domainRules
         self.httpsInterceptionEnabled = httpsInterceptionEnabled
+        self.breakpointRules = breakpointRules
     }
 
     // MARK: - ChannelInboundHandler
@@ -69,6 +72,22 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
 
     func errorCaught(context: ChannelHandlerContext, error: Error) {
         context.close(promise: nil)
+    }
+
+    // MARK: - Breakpoint Management
+
+    func updateBreakpointRules(_ rules: [BreakpointRule]) {
+        breakpointRules = rules
+    }
+
+    private func shouldPauseRequest(url: String) -> BreakpointRule? {
+        for rule in breakpointRules {
+            if !rule.isEnabled { continue }
+            if rule.matches(url: url) && rule.interceptRequest {
+                return rule
+            }
+        }
+        return nil
     }
 
     // MARK: - Head
@@ -136,6 +155,17 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
 
         let store = self.store
         Task { @MainActor in store.append(exchange) }
+
+        // Check if this request should be paused for breakpoint
+        if let matchingRule = shouldPauseRequest(url: head.uri) {
+            print("⏸️  Breakpoint hit for request: \(head.uri)")
+            
+            // Pause the exchange and notify Flutter
+            let bodyData = bodyContent?.data
+            pauseExchange(exchange: exchange, context: context, head: head, target: target, 
+                         bodyContent: bodyData, bodySize: bodySize, requestHeaders: requestHeaders)
+            return
+        }
 
         // Build outbound request head (absolute URI → relative)
         var outHead = head
@@ -419,4 +449,72 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
         let port  = parts.count > 1 ? Int(parts[1]) ?? 80 : 80
         return (host: host, port: port, relativePath: uri)
     }
+
+    // MARK: - Breakpoint Pausing
+
+    private func pauseExchange(
+        exchange: CapturedExchange,
+        context: ChannelHandlerContext,
+        head: HTTPRequestHead,
+        target: (host: String, port: Int, relativePath: String),
+        bodyContent: Data?,
+        bodySize: Int,
+        requestHeaders: [(name: String, value: String)]
+    ) {
+        // Store the paused exchange state
+        let pausedState = PausedExchangeState(
+            context: context,
+            head: head,
+            target: target,
+            bodyContent: bodyContent,
+            bodySize: bodySize,
+            requestHeaders: requestHeaders
+        )
+
+        // Notify Flutter about the breakpoint hit
+        notifyFlutterBreakpointHit(exchangeId: exchange.id.uuidString)
+
+        print("⏸️  Exchange paused: \(exchange.id), waiting for Flutter response...")
+    }
+
+    private func notifyFlutterBreakpointHit(exchangeId: String) {
+        // This would use the existing Flutter channel to notify Flutter
+        // For now, we'll just print a message
+        print("📬 Notifying Flutter: breakpoint hit for exchange \(exchangeId)")
+        
+        // In the actual implementation, you would:
+        // 1. Get a reference to the Flutter method channel
+        // 2. Call a method like "onBreakpointHit" with the exchangeId
+        // 3. Flutter would show the breakpoint dialog
+        // 4. When user clicks Resume/Cancel, Flutter calls resumeExchange/cancelExchange
+    }
+
+    // MARK: - Resume/Cancel Handling
+
+    func resumeExchange(exchangeId: String, modifications: [String: Any]?) {
+        print("▶️  Resuming exchange \(exchangeId) with modifications: \(modifications ?? [:])")
+        // Implementation would:
+        // 1. Find the paused exchange
+        // 2. Apply modifications
+        // 3. Continue with the original flow
+    }
+
+    func cancelExchange(exchangeId: String) {
+        print("⏹️  Cancelling exchange \(exchangeId)")
+        // Implementation would:
+        // 1. Find the paused exchange
+        // 2. Close the connection
+        // 3. Clean up
+    }
+}
+
+// MARK: - Paused Exchange State
+
+private struct PausedExchangeState {
+    let context: ChannelHandlerContext
+    let head: HTTPRequestHead
+    let target: (host: String, port: Int, relativePath: String)
+    let bodyContent: Data?
+    let bodySize: Int
+    let requestHeaders: [(name: String, value: String)]
 }

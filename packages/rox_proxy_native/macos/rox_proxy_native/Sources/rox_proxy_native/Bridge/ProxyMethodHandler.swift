@@ -48,6 +48,12 @@ final class ProxyMethodHandler: NSObject {
         case "releaseAllBodies": releaseAllBodies(result: result)
         case "decompressBody":  decompressBody(call, result: result)
         case "replayRequest":   replayRequest(call, result: result)
+        case "setBreakpointRules": setBreakpointRules(call, result: result)
+        case "waitForBreakpoint": waitForBreakpoint(call, result: result)
+        case "resumeExchange": resumeExchange(call, result: result)
+        case "cancelExchange": cancelExchange(call, result: result)
+        case "logBreakpointEvent": logBreakpointEvent(call, result: result)
+        case "bringWindowToFront": bringWindowToFront(_: call, result: result)
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -85,7 +91,8 @@ final class ProxyMethodHandler: NSObject {
             connectionTimeoutSeconds: timeout,
             certificateAuthority: certificateAuthority,
             domainCertCache: domainCertCache,
-            httpsInterceptionEnabled: httpsInterceptionEnabled
+            httpsInterceptionEnabled: httpsInterceptionEnabled,
+            breakpointRules: [] // Will be set via setBreakpointRules
         )
         self.proxyServer = server
 
@@ -301,6 +308,104 @@ final class ProxyMethodHandler: NSObject {
                     details: nil
                 ))
             }
+        }
+    }
+
+    // MARK: - Breakpoint Management
+
+    private func setBreakpointRules(_ call: FlutterMethodCall, result: FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let rulesData = args["rules"] as? [[String: Any]] else {
+            result(FlutterError(code: "INVALID_ARGS", message: "Missing rules", details: nil))
+            return
+        }
+
+        let rules: [BreakpointRule] = rulesData.compactMap { ruleDict in
+            guard let id = ruleDict["id"] as? String,
+                  let urlPattern = ruleDict["urlPattern"] as? String else {
+                return nil
+            }
+            let isEnabled = ruleDict["isEnabled"] as? Bool ?? true
+            let interceptRequest = ruleDict["interceptRequest"] as? Bool ?? true
+            let interceptResponse = ruleDict["interceptResponse"] as? Bool ?? true
+            
+            return BreakpointRule(
+                id: id,
+                urlPattern: urlPattern,
+                isEnabled: isEnabled,
+                interceptRequest: interceptRequest,
+                interceptResponse: interceptResponse
+            )
+        }
+
+        proxyServer?.setBreakpointRules(rules)
+        
+        // Also update the HTTP handler if the server is running
+        if let server = proxyServer {
+            // This would require access to the HTTP handler
+            // For now, we'll just log it
+            print("✅ Breakpoint rules set: \(rules.count) rules")
+        }
+        
+        result(nil)
+    }
+
+    private func waitForBreakpoint(_ call: FlutterMethodCall, result: FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let exchangeId = args["exchangeId"] as? String else {
+            result(FlutterError(code: "INVALID_ARGS", message: "Missing exchangeId", details: nil))
+            return
+        }
+
+        // This method would wait for a breakpoint to be hit
+        // For now, we'll just return nil since the native implementation isn't complete
+        result(nil)
+    }
+
+    private func resumeExchange(_ call: FlutterMethodCall, result: FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let exchangeId = args["exchangeId"] as? String else {
+            result(FlutterError(code: "INVALID_ARGS", message: "Missing exchangeId", details: nil))
+            return
+        }
+
+        let modifications = args["modifications"] as? [String: Any]
+        proxyServer?.resumeExchange(exchangeId: exchangeId, modifications: modifications)
+        result(nil)
+    }
+
+    private func cancelExchange(_ call: FlutterMethodCall, result: FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let exchangeId = args["exchangeId"] as? String else {
+            result(FlutterError(code: "INVALID_ARGS", message: "Missing exchangeId", details: nil))
+            return
+        }
+
+        proxyServer?.cancelExchange(exchangeId: exchangeId)
+        result(nil)
+    }
+
+    private func logBreakpointEvent(_ call: FlutterMethodCall, result: FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let exchangeId = args["exchangeId"] as? String,
+              let action = args["action"] as? String else {
+            result(FlutterError(code: "INVALID_ARGS", message: "Missing exchangeId or action", details: nil))
+            return
+        }
+
+        let modifications = args["modifications"] as? String
+        let error = args["error"] as? String
+        
+        // Log to console for now
+        print("[Breakpoint Event] \(action): \(exchangeId), modifications: \(modifications ?? "none"), error: \(error ?? "none")")
+        
+        result(nil)
+    }
+
+    private func bringWindowToFront(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+        DispatchQueue.main.async { [weak self] in
+            self?.proxyServer?.bringWindowToFront()
+            result(nil)
         }
     }
 }
