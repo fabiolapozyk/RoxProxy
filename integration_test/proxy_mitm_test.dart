@@ -603,14 +603,23 @@ void main() {
           await Future.delayed(const Duration(milliseconds: 100));
         }
         
-        // Find the HTTPS exchange
-        final httpsExchanges = exchanges.where((e) => 
-          e.url.contains('httpbin.org') && e.isHTTPS
-        );
+        // Wait for exchange with status code
+        final stopwatch2 = Stopwatch()..start();
+        CapturedExchange? completedExchange;
+        while (stopwatch2.elapsedMilliseconds < 5000) {
+          final httpsExchanges = exchanges.where((e) => 
+            e.url.contains('httpbin.org') && e.isHTTPS && e.statusCode != null
+          );
+          if (httpsExchanges.isNotEmpty) {
+            completedExchange = httpsExchanges.first;
+            break;
+          }
+          await Future.delayed(const Duration(milliseconds: 100));
+        }
         
-        expect(httpsExchanges.length, greaterThan(0), reason: 'Expected HTTPS exchange to be captured');
+        expect(completedExchange, isNotNull, reason: 'Expected HTTPS exchange with statusCode to be captured');
         
-        final exchange = httpsExchanges.first;
+        final exchange = completedExchange!;
         expect(exchange.statusCode, equals(200));
         
         // Response headers may be null if not decrypted (blind tunnel)
