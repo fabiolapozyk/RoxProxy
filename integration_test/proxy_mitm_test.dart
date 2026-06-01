@@ -591,22 +591,10 @@ void main() {
         final response = await request.close();
         expect(response.statusCode, equals(200));
         
-        // Wait for exchange with response headers
-        final stopwatch = Stopwatch()..start();
-        while (stopwatch.elapsedMilliseconds < 5000) {
-          final httpsExchanges = exchanges.where((e) => 
-            e.url.contains('httpbin.org') && e.isHTTPS && e.responseHeaders != null
-          );
-          if (httpsExchanges.isNotEmpty) {
-            break;
-          }
-          await Future.delayed(const Duration(milliseconds: 100));
-        }
-        
         // Wait for exchange with status code
-        final stopwatch2 = Stopwatch()..start();
+        final stopwatch = Stopwatch()..start();
         CapturedExchange? completedExchange;
-        while (stopwatch2.elapsedMilliseconds < 5000) {
+        while (stopwatch.elapsedMilliseconds < 10000) {
           final httpsExchanges = exchanges.where((e) => 
             e.url.contains('httpbin.org') && e.isHTTPS && e.statusCode != null
           );
