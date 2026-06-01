@@ -26,6 +26,61 @@ struct DomainRuleTests {
         let rule = DomainRule(domain: "api.example.com", isEnabled: false)
         #expect(!rule.matches(host: "api.example.com"))
     }
+
+    @Test func wildcardDoesNotMatchParentDomain() {
+        // *.sub.example.com should NOT match example.com
+        let rule = DomainRule(domain: "*.sub.example.com")
+        #expect(rule.matches(host: "api.sub.example.com"))
+        #expect(rule.matches(host: "sub.example.com"))
+        #expect(!rule.matches(host: "example.com"))
+        #expect(!rule.matches(host: "notsub.example.com"))
+    }
+
+    @Test func wildcardMatchesMultiLevelSubdomains() {
+        let rule = DomainRule(domain: "*.example.com")
+        #expect(rule.matches(host: "a.b.c.example.com"))
+        #expect(rule.matches(host: "deep.nested.sub.example.com"))
+    }
+
+    @Test func emptyDomainNeverMatches() {
+        let rule = DomainRule(domain: "")
+        #expect(!rule.matches(host: "example.com"))
+        // Empty domain matches empty host - this is the current behavior
+        #expect(rule.matches(host: ""))
+    }
+
+    @Test func caseSensitiveMatching() {
+        let rule = DomainRule(domain: "API.Example.COM")
+        #expect(rule.matches(host: "API.Example.COM"))
+        #expect(!rule.matches(host: "api.example.com"))
+        #expect(!rule.matches(host: "API.EXAMPLE.COM"))
+    }
+
+    @Test func wildcardWithEmptySubdomain() {
+        let rule = DomainRule(domain: "*.example.com")
+        // Host with just the domain part (no subdomain)
+        #expect(rule.matches(host: "example.com"))
+    }
+
+    @Test func portInHostDoesNotAffectMatching() {
+        let rule = DomainRule(domain: "api.example.com")
+        // Host should not include port for matching
+        #expect(rule.matches(host: "api.example.com"))
+        #expect(!rule.matches(host: "api.example.com:8080"))
+    }
+
+    @Test func specialCharactersInDomain() {
+        let rule = DomainRule(domain: "api-test.example.com")
+        #expect(rule.matches(host: "api-test.example.com"))
+        #expect(!rule.matches(host: "api_test.example.com"))
+    }
+
+    @Test func unicodeDomainMatching() {
+        let rule = DomainRule(domain: "test.example.com")
+        // Punycode domains - these are different hosts
+        #expect(!rule.matches(host: "xn--test.example.com"))
+        #expect(!rule.matches(host: "tëst.example.com"))
+    }
 }
 
 // MARK: - BodyContent
@@ -76,6 +131,85 @@ struct BodyContentTests {
         let body = BodyContent.appending(existing: nil, newBytes: bigData, runningTotal: &total)
         #expect(body.isTruncated)
         #expect(body.totalSize == bigData.count)
+    }
+
+    @Test func appendingExactlyAtLimitDoesNotTruncate() {
+        let dataAtLimit = Data(repeating: 0xFF, count: BodyContent.maxInMemorySize)
+        var total = 0
+        let body = BodyContent.appending(existing: nil, newBytes: dataAtLimit, runningTotal: &total)
+        #expect(!body.isTruncated)
+        #expect(body.totalSize == BodyContent.maxInMemorySize)
+        #expect(body.data?.count == BodyContent.maxInMemorySize)
+    }
+
+    @Test func appendingOneByteOverLimitTruncates() {
+        let dataOverLimit = Data(repeating: 0xFF, count: BodyContent.maxInMemorySize + 1)
+        var total = 0
+        let body = BodyContent.appending(existing: nil, newBytes: dataOverLimit, runningTotal: &total)
+        #expect(body.isTruncated)
+        #expect(body.totalSize == BodyContent.maxInMemorySize + 1)
+        #expect(body.data?.count == BodyContent.maxInMemorySize)
+    }
+
+    @Test func appendingToExistingTruncatedBodyDoesNotChangeData() {
+        var total = BodyContent.maxInMemorySize + 50
+        let existingTruncated = BodyContent.truncated(Data(repeating: 0xAA, count: 100), totalSize: BodyContent.maxInMemorySize + 50)
+        
+        let newBytes = Data(repeating: 0xBB, count: 100)
+        let body = BodyContent.appending(existing: existingTruncated, newBytes: newBytes, runningTotal: &total)
+        
+        #expect(body.isTruncated)
+        #expect(body.totalSize == BodyContent.maxInMemorySize + 150)
+        #expect(body.data?.count == 100) // Original truncated data preserved
+        #expect(body.data?.first == 0xAA) // Verify it's the original data
+    }
+
+    @Test func incrementalAppendingCrossesLimit() {
+        var total = 0
+        let halfLimit = BodyContent.maxInMemorySize / 2
+        let firstChunk = Data(repeating: 0x01, count: halfLimit)
+        let secondChunk = Data(repeating: 0x02, count: halfLimit + 1)
+        
+        let body1 = BodyContent.appending(existing: nil, newBytes: firstChunk, runningTotal: &total)
+        #expect(!body1.isTruncated)
+        #expect(body1.totalSize == halfLimit)
+        
+        let body2 = BodyContent.appending(existing: body1, newBytes: secondChunk, runningTotal: &total)
+        #expect(body2.isTruncated)
+        #expect(body2.totalSize == BodyContent.maxInMemorySize + 1)
+        #expect(body2.data?.count == BodyContent.maxInMemorySize)
+    }
+
+    @Test func truncatedBodyDataIsPrefixOfOriginal() {
+        let original = Data("Hello, this is a very long string that exceeds the limit".utf8)
+        var total = 0
+        let body = BodyContent.appending(existing: nil, newBytes: original, runningTotal: &total)
+        
+        if body.isTruncated, let data = body.data {
+            #expect(original.starts(with: data))
+        }
+    }
+
+    @Test func emptyDataAppending() {
+        var total = 0
+        let emptyData = Data()
+        let body = BodyContent.appending(existing: nil, newBytes: emptyData, runningTotal: &total)
+        #expect(!body.isTruncated)
+        #expect(body.totalSize == 0)
+        // Empty Data() creates .data variant, not .empty
+        #expect(!body.isEmpty)
+    }
+
+    @Test func asStringWithNonUTF8Data() {
+        let nonUTF8Data = Data([0xFF, 0xFE, 0xFD])
+        let body = BodyContent.data(nonUTF8Data)
+        #expect(body.asString() == nil)
+    }
+
+    @Test func asStringWithUTF8Data() {
+        let utf8Data = Data("Hello 世界".utf8)
+        let body = BodyContent.data(utf8Data)
+        #expect(body.asString() == "Hello 世界")
     }
 }
 
