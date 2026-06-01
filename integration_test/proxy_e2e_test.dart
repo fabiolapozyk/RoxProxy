@@ -79,8 +79,8 @@ void main() {
       
       // Add body
       if (body != null) {
-        request.headers.contentLength = body.length;
-        request.add(utf8.encode(body));
+        // Use write() to let HttpClient handle contentLength and encoding automatically
+        request.write(body);
       }
       
       final response = await request.close();
@@ -214,20 +214,21 @@ void main() {
         
         expect(response.statusCode, equals(200));
         
-        // Wait for exchange to be captured with response
-        await Future.delayed(const Duration(milliseconds: 1500));
-        
-        // Verify exchange was captured
-        expect(exchanges.length, greaterThan(0));
-        
-        final getExchanges = exchanges.where((e) => e.method == 'GET');
-        if (getExchanges.isNotEmpty) {
-          final exchange = getExchanges.first;
-          // Response should have been captured (may be null if timing issue)
-          if (exchange.statusCode != null) {
-            expect(exchange.statusCode, equals(200));
+        // Wait for exchange to be captured with response status code
+        // Use longer timeout and active waiting
+        final stopwatch = Stopwatch()..start();
+        CapturedExchange? exchangeWithStatus;
+        while (stopwatch.elapsedMilliseconds < 3000) {
+          final getExchanges = exchanges.where((e) => e.method == 'GET' && e.statusCode != null);
+          if (getExchanges.isNotEmpty) {
+            exchangeWithStatus = getExchanges.first;
+            break;
           }
+          await Future.delayed(const Duration(milliseconds: 100));
         }
+        
+        expect(exchangeWithStatus, isNotNull, reason: 'Expected exchange with statusCode to be captured');
+        expect(exchangeWithStatus!.statusCode, equals(200));
       } finally {
         await subscription.cancel();
       }
@@ -372,9 +373,9 @@ void main() {
         };
         
         final request = await client.openUrl('POST', Uri.parse('http://httpbin.org/post'));
-        final bodyBytes = utf8.encode('test body');
-        request.headers.contentLength = bodyBytes.length;
-        request.add(bodyBytes);
+        // Use write() instead of add() to let HttpClient handle contentLength automatically
+        request.headers.set('Content-Type', 'text/plain');
+        request.write('test body');
         
         final response = await request.close();
         expect(response.statusCode, equals(200));
