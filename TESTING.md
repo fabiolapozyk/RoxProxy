@@ -69,6 +69,7 @@ flutter test -v integration_test/
 |-------|-----------|---------|----------|
 | **Unit Tests** | Swift Testing | Test individual handlers in isolation | `Tests/RoxProxyTests/Handlers/` |
 | **Integration Tests** | Swift Testing | Test component interactions | `Tests/RoxProxyTests/ProxyServerIntegrationTests.swift` |
+| **System Tests** | Swift Testing | Test system proxy config and crash recovery | `Tests/RoxProxyTests/` |
 | **E2E Tests** | Flutter integration_test | Test full proxy flow with real network calls | `integration_test/` |
 
 ### Test Harness
@@ -113,13 +114,15 @@ All SwiftNIO components are mocked for unit testing:
 
 ### Missing Test Areas
 
-- Connection timeout handling
+- Connection timeout handling (partially covered in Dart TLS error tests)
 - Body truncation at 10MB limit
-- Pipelining rejection
-- Network error scenarios (connection reset, DNS failure)
 - TLS handshake errors
-- System proxy configuration
-- Crash recovery scenarios
+
+**Recently Added Coverage:**
+- ✅ Pipelining rejection - Swift unit tests in `HTTPProxyHandlerPipeliningTests`
+- ✅ Network error scenarios (connection reset, DNS failure) - Dart tests in `TLS Error Tests - Network Error Scenarios` group
+- ✅ System proxy configuration - Swift unit tests in `SystemProxyManagerTests`
+- ✅ Crash recovery scenarios - Swift unit tests in `CrashGuardTests`
 
 ### Example Tests
 

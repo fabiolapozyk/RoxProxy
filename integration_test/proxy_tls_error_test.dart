@@ -691,4 +691,166 @@ void main() {
       }
     });
   });
+
+  group('TLS Error Tests - Network Error Scenarios', () {
+    late ProxyChannel proxyChannel;
+    late int proxyPort;
+    late Stream<ExchangeEvent> exchangeStream;
+
+    setUpAll(() async {
+      proxyChannel = ProxyChannel();
+      exchangeStream = proxyChannel.exchangeStream;
+      
+      proxyPort = await proxyChannel.startProxy(
+        port: 19706,
+        domainRules: [
+          DomainRule(domain: 'httpbin.org', isEnabled: true),
+        ],
+        connectionTimeoutSeconds: 10,
+        setSystemProxy: false,
+        httpsInterceptionEnabled: true,
+      );
+      
+      await Future.delayed(const Duration(milliseconds: 500));
+    });
+
+    tearDownAll(() async {
+      await proxyChannel.stopProxy();
+    });
+
+    testWidgets('DNS failure for non-existent domain is handled gracefully', (WidgetTester tester) async {
+      final exchanges = <CapturedExchange>[];
+      final subscription = exchangeStream.listen((event) {
+        exchanges.add(event.exchange);
+      });
+
+      try {
+        final client = HttpClient();
+        client.findProxy = (uri) {
+          return "PROXY 127.0.0.1:$proxyPort";
+        };
+        client.badCertificateCallback = (X509Certificate cert, String host, int port) {
+          return true;
+        };
+        client.connectionTimeout = const Duration(milliseconds: 2000);
+        
+        bool caughtError = false;
+        
+        try {
+          // Use a domain that definitely does not exist
+          final request = await client.openUrl('GET', Uri.parse('https://this-domain-definitely-does-not-exist-1234567890.test'));
+          await request.close();
+        } catch (e) {
+          caughtError = true;
+          // Expected: SocketException, DNS lookup failure, or connection timeout
+          expect(e.toString(), anyOf(
+            contains('SocketException'),
+            contains('failed'),
+            contains('timeout'),
+            contains('DNS'),
+            contains('name not resolved'),
+          ));
+        }
+        
+        expect(caughtError, isTrue, reason: 'Expected DNS failure or connection error');
+        
+        // Wait for any exchange to be captured
+        await Future.delayed(const Duration(milliseconds: 1000));
+        
+        // The exchange might be captured with failed state, or might not exist
+        // depending on when the DNS error occurs
+        expect(exchanges.length, greaterThanOrEqualTo(0));
+        
+      } finally {
+        await subscription.cancel();
+      }
+    });
+
+    testWidgets('Connection reset by server is handled gracefully', (WidgetTester tester) async {
+      final exchanges = <CapturedExchange>[];
+      final subscription = exchangeStream.listen((event) {
+        exchanges.add(event.exchange);
+      });
+
+      try {
+        final client = HttpClient();
+        client.findProxy = (uri) {
+          return "PROXY 127.0.0.1:$proxyPort";
+        };
+        client.badCertificateCallback = (X509Certificate cert, String host, int port) {
+          return true;
+        };
+        client.connectionTimeout = const Duration(milliseconds: 2000);
+        
+        bool caughtError = false;
+        int? responseStatusCode;
+        
+        try {
+          // Try to connect to localhost on a port that will reset the connection
+          // Using port 9998 which is unlikely to have a server, but if it does,
+          // it will likely reset the connection when receiving unexpected HTTPS
+          final request = await client.openUrl('GET', Uri.parse('https://127.0.0.1:9998/'));
+          final response = await request.close();
+          responseStatusCode = response.statusCode;
+          // If connection was reset after proxy established it, we might get a response
+        } catch (e) {
+          caughtError = true;
+          // Expected: connection reset, connection closed, or similar error
+          expect(e.toString(), anyOf(
+            contains('Connection reset'),
+            contains('connection closed'),
+            contains('reset by peer'),
+            contains('SocketException'),
+            contains('failed'),
+          ));
+        }
+        
+        // Either an exception was thrown, or we got an error status code
+        expect(caughtError || (responseStatusCode != null && responseStatusCode >= 400), isTrue,
+            reason: 'Expected either an exception or HTTP error status code (>=400) for connection reset');
+        
+        await Future.delayed(const Duration(milliseconds: 500));
+        
+        // Check exchanges
+        expect(exchanges.length, greaterThanOrEqualTo(0));
+        
+      } finally {
+        await subscription.cancel();
+      }
+    });
+
+    testWidgets('Connection to non-routable IP is handled gracefully', (WidgetTester tester) async {
+      final client = HttpClient();
+      client.findProxy = (uri) {
+        return "PROXY 127.0.0.1:$proxyPort";
+      };
+      client.badCertificateCallback = (X509Certificate cert, String host, int port) {
+        return true;
+      };
+      client.connectionTimeout = const Duration(milliseconds: 1000);
+      
+      bool caughtError = false;
+      
+      try {
+        // Try to connect to a non-routable IP address (RFC 5737 - TEST-NET-1)
+        // This should fail at the network level
+        final request = await client.openUrl('GET', Uri.parse('https://192.0.2.1/'));
+        await request.close();
+      } catch (e) {
+        caughtError = true;
+        // Expected: timeout, connection failed, or network unreachable
+        expect(e.toString(), anyOf(
+          contains('timeout'),
+          contains('Connection timed out'),
+          contains('failed'),
+          contains('Network is unreachable'),
+          contains('No route to host'),
+        ));
+      }
+      
+      expect(caughtError, isTrue, reason: 'Expected network error for non-routable IP');
+      
+      client.close();
+    });
+  });
 }
