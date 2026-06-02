@@ -121,3 +121,31 @@ sudo spctl --add /Applications/Rox\ Proxy.app
 4. Click "Open Anyway"
 
 After the first launch, macOS will remember your choice and won't show this warning again.
+
+---
+
+## Tests
+
+```bash
+# Swift (unit + integration + system tests)
+swift test
+
+# Flutter E2E tests
+flutter test integration_test/
+```
+
+**Copertura:**
+- HTTP/HTTPS interception, MITM decryption, certificate handling
+- TLS errors, tunnel creation, connection failures
+- DNS failure, connection reset, non-routable IP handling
+- Pipelining rejection (HTTP/1.1)
+- System proxy configuration (macOS networksetup)
+- Crash recovery (sentinel file, signal handlers)
+
+Dettagli in [TESTING.md](TESTING.md).
+
+---
+
+## Contributing
+
+When adding new features, ensure all tests pass. See [TESTING.md](TESTING.md) for guidelines.

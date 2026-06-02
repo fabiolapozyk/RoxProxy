@@ -24,14 +24,14 @@ dependencies:
 
   # Path for Application Support directory
   path_provider: ^2.1.5
-  mockito: ^5.4.6
-  build_runner: ^2.5.4
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
   riverpod_generator: ^2.6.1
+  integration_test:
+    sdk: flutter
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

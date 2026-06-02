@@ -39,3 +39,11 @@ macos/Podfile.lock
 
 # Release scripts
 scripts/
+
+# Test certificates and temporary files
+/TestCerts/
+test_resources/
+
+# Flutter integration test - ignore build artifacts but keep source files
+integration_test/.dart_tool/
+integration_test/build/
