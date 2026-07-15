@@ -1,5 +1,6 @@
 import Foundation
 import NIOSSL
+import os.log
 
 /// Thread-safe cache of per-domain TLS certificates signed by the root CA.
 ///
@@ -20,8 +21,10 @@ final class DomainCertificateCache: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         if let cached = _cache[host] {
+            ProxyLogger.certificate.debug("Cache hit for domain certificate: %{public}@", host)
             return (cached.cert, cached.key)
         }
+        ProxyLogger.certificate.debug("Cache miss for domain certificate: %{public}@, generating", host)
         let pair = try ca.generateDomainCertificate(for: host)
         _cache[host] = (cert: pair.0, key: pair.1)
         return pair
@@ -29,6 +32,7 @@ final class DomainCertificateCache: @unchecked Sendable {
 
     /// Evicts all cached certificates (e.g. after CA regeneration).
     func clearCache() {
+        ProxyLogger.certificate.debug("Clearing domain certificate cache")
         lock.lock()
         defer { lock.unlock() }
         _cache.removeAll()

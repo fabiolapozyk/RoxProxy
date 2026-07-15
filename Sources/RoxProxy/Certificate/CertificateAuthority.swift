@@ -3,6 +3,7 @@ import Crypto
 import X509
 import SwiftASN1
 import NIOSSL
+import os.log
 
 /// Manages the root CA certificate and signs per-domain leaf certificates for HTTPS MITM.
 ///
@@ -47,23 +48,28 @@ final class CertificateAuthority: Sendable {
 
     /// Load an existing CA from disk or generate a new one.
     static func loadOrGenerate() throws -> CertificateAuthority {
+        ProxyLogger.certificate.info("Loading or generating Certificate Authority")
         let dir = storageDir
         let certURL = Self.certURL
         let keyURL  = Self.keyURL
 
         // Ensure storage directory exists
         if !FileManager.default.fileExists(atPath: dir.path) {
+            ProxyLogger.certificate.debug("Creating storage directory at %@", dir.path)
             do {
                 try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             } catch {
+                ProxyLogger.certificate.error("Failed to create storage directory: %@", error.localizedDescription)
                 throw CAError.storageDirCreationFailed
             }
         }
 
         if FileManager.default.fileExists(atPath: certURL.path),
            FileManager.default.fileExists(atPath: keyURL.path) {
+            ProxyLogger.certificate.info("CA files found on disk, loading existing CA")
             return try loadFromDisk(certURL: certURL, keyURL: keyURL)
         } else {
+            ProxyLogger.certificate.info("CA files not found, generating new CA")
             return try generateAndSave(certURL: certURL, keyURL: keyURL)
         }
     }
@@ -77,22 +83,26 @@ final class CertificateAuthority: Sendable {
     // MARK: - Load from disk
 
     private static func loadFromDisk(certURL: URL, keyURL: URL) throws -> CertificateAuthority {
+        ProxyLogger.certificate.debug("Loading CA certificate from %@", certURL.path)
         let certDER = try Data(contentsOf: certURL)
         let keyPEM  = try String(contentsOf: keyURL, encoding: .utf8)
 
         let cert = try Certificate(derEncoded: Array(certDER))
         let key  = try Certificate.PrivateKey(pemEncoded: keyPEM)
-
+        
+        ProxyLogger.certificate.info("CA loaded successfully from disk")
         return CertificateAuthority(certificate: cert, privateKey: key, derBytes: certDER)
     }
 
     // MARK: - Generate
 
     private static func generateAndSave(certURL: URL, keyURL: URL) throws -> CertificateAuthority {
+        ProxyLogger.certificate.info("Generating new CA certificate")
         // 1. Generate P-256 key pair
         let rawKey = P256.Signing.PrivateKey()
         let privateKey = Certificate.PrivateKey(rawKey)
         let publicKey  = Certificate.PublicKey(rawKey.publicKey)
+        ProxyLogger.certificate.debug("CA key pair generated (P-256)")
 
         // 2. Build distinguished name
         let name = try DistinguishedName {
@@ -111,6 +121,7 @@ final class CertificateAuthority: Sendable {
         }
 
         // 5. Create self-signed certificate
+        ProxyLogger.certificate.debug("Creating self-signed CA certificate")
         let cert = try Certificate(
             version: .v3,
             serialNumber: Certificate.SerialNumber(),
@@ -122,8 +133,10 @@ final class CertificateAuthority: Sendable {
             extensions: extensions,
             issuerPrivateKey: privateKey
         )
+        ProxyLogger.certificate.debug("CA certificate created with validity: %@ to %@", now.description, expiry.description)
 
         // 6. Persist to disk
+        ProxyLogger.certificate.debug("Persisting CA certificate and key to disk")
         let certPEMDoc = try cert.serializeAsPEM()
         let keyPEM     = try privateKey.serializeAsPEM().pemString
 
@@ -132,7 +145,8 @@ final class CertificateAuthority: Sendable {
 
         // Protect the private key file (owner read-only)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: keyURL.path)
-
+        
+        ProxyLogger.certificate.info("CA certificate generated and saved successfully")
         return CertificateAuthority(certificate: cert, privateKey: privateKey, derBytes: Data(certPEMDoc.derBytes))
     }
 
@@ -147,6 +161,7 @@ final class CertificateAuthority: Sendable {
     /// Creates and returns a leaf certificate for the given hostname signed by this CA.
     /// The returned pair is ready for use in a `NIOSSLServerHandler`.
     func generateDomainCertificate(for host: String) throws -> (NIOSSLCertificate, NIOSSLPrivateKey) {
+        ProxyLogger.certificate.debug("Generating domain certificate for %{public}@", host)
         // Generate fresh key for this domain
         let rawLeafKey = P256.Signing.PrivateKey()
         let leafPrivateKey = Certificate.PrivateKey(rawLeafKey)
@@ -186,7 +201,8 @@ final class CertificateAuthority: Sendable {
 
         let nioSSLCert = try NIOSSLCertificate(bytes: Array(certPEM.utf8), format: .pem)
         let nioSSLKey  = try NIOSSLPrivateKey(bytes: Array(keyPEM.utf8), format: .pem)
-
+        
+        ProxyLogger.certificate.debug("Domain certificate generated for %{public}@", host)
         return (nioSSLCert, nioSSLKey)
     }
 }

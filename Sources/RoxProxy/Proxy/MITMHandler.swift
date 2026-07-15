@@ -4,6 +4,7 @@ import NIOPosix
 import NIOHTTP1
 import NIOTLS
 import NIOSSL
+import os.log
 
 // MARK: - MITM Setup Handler
 
@@ -27,12 +28,14 @@ final class MITMSetupHandler: ChannelInboundHandler, RemovableChannelHandler {
 
     func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
         if case TLSUserEvent.handshakeCompleted = event {
+            ProxyLogger.tls.info("MITM TLS handshake completed for %{public}@:%d", host, port)
             upgradePipeline(context: context)
         }
         context.fireUserInboundEventTriggered(event)
     }
 
     func errorCaught(context: ChannelHandlerContext, error: Error) {
+        ProxyLogger.tls.error("MITM setup handler error: %@", error.localizedDescription)
         context.close(promise: nil)
     }
 
@@ -67,6 +70,7 @@ final class MITMSetupHandler: ChannelInboundHandler, RemovableChannelHandler {
         }
         .flatMap { pipeline.removeHandler(self) }
         .whenSuccess {
+            ProxyLogger.tls.info("MITM pipeline upgrade complete for %{public}@:%d", host, port)
             _ = context.channel.setOption(ChannelOptions.autoRead, value: true)
         }
     }
@@ -107,7 +111,11 @@ final class MITMHandler: ChannelInboundHandler {
         let part = unwrapInboundIn(data)
         switch part {
         case .head(let head):
-            guard case .idle = state else { context.close(promise: nil); return }
+            guard case .idle = state else { 
+                ProxyLogger.http.error("MITMHandler: pipelining rejected")
+                context.close(promise: nil); return 
+            }
+            ProxyLogger.http.debug("MITM decrypted request: %@ %@", head.method.rawValue, head.uri)
             state = .collecting(head: head, bodyParts: [])
         case .body(let buffer):
             guard case .collecting(let head, var parts) = state else { return }
@@ -119,10 +127,12 @@ final class MITMHandler: ChannelInboundHandler {
     }
 
     func channelInactive(context: ChannelHandlerContext) {
+        ProxyLogger.http.debug("MITM channel inactive")
         state = .idle
     }
 
     func errorCaught(context: ChannelHandlerContext, error: Error) {
+        ProxyLogger.error.error("MITM handler error: %@", error.localizedDescription)
         context.close(promise: nil)
     }
 
@@ -140,6 +150,7 @@ final class MITMHandler: ChannelInboundHandler {
         }
 
         let url = "https://\(host)\(head.uri)"
+        ProxyLogger.http.debug("MITM decrypted request end for %{public}@: %@ %@", host, head.method.rawValue, head.uri)
         var exchange = CapturedExchange(
             method: head.method.rawValue,
             url: url,
@@ -177,12 +188,14 @@ final class MITMHandler: ChannelInboundHandler {
         }
 
         // Build upstream TLS context — no certificate verification (dev tool)
+        ProxyLogger.tls.debug("Creating client TLS context (certificate verification disabled)")
         let sslContext: NIOSSLContext
         do {
             var tlsConfig = TLSConfiguration.makeClientConfiguration()
             tlsConfig.certificateVerification = .none
             sslContext = try NIOSSLContext(configuration: tlsConfig)
         } catch {
+            ProxyLogger.tls.error("TLS setup failed: %@", error.localizedDescription)
             exchange.state   = .failed("TLS setup: \(error.localizedDescription)")
             exchange.endTime = Date()
             Task { @MainActor in store.update(exchange) }
@@ -216,6 +229,7 @@ final class MITMHandler: ChannelInboundHandler {
             .whenComplete { result in
                 switch result {
                 case .success(let upstreamChannel):
+                    ProxyLogger.tls.debug("MITM upstream TLS connection established to %{public}@:%d", host, self.port)
                     upstreamChannel.write(NIOAny(HTTPClientRequestPart.head(outHead)), promise: nil)
                     for buf in bodyParts {
                         upstreamChannel.write(
@@ -227,6 +241,7 @@ final class MITMHandler: ChannelInboundHandler {
                     )
 
                 case .failure(let error):
+                    ProxyLogger.tls.error("MITM upstream connection failed to %{public}@:%d: %@", host, self.port, error.localizedDescription)
                     var failed = exchange
                     failed.state   = .failed(error.localizedDescription)
                     failed.endTime = Date()

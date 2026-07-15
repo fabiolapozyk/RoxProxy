@@ -2,6 +2,7 @@ import Foundation
 import NIOCore
 import NIOPosix
 import NIOHTTP1
+import os.log
 
 /// Manages the lifecycle of the local HTTP proxy server built on SwiftNIO.
 final class ProxyServer {
@@ -90,7 +91,10 @@ final class ProxyServer {
 
         do {
             channel = try await bootstrap.bind(host: "0.0.0.0", port: port).get()
+            ProxyLogger.proxy.info("Proxy server bound to 0.0.0.0:%d", port)
         } catch {
+            ProxyLogger.proxy.error("Failed to bind to port %d: %@", port, error.localizedDescription)
+            ProxyLogger.error.error("Bind failed on port %d: %@", port, error.localizedDescription)
             try? await group.shutdownGracefully()
             self.group = nil
             throw ProxyError.bindFailed(port: port, underlying: error)
@@ -99,10 +103,12 @@ final class ProxyServer {
 
     /// Stops the proxy server gracefully.
     func stop() async throws {
+        ProxyLogger.proxy.info("Stopping proxy server")
         try await channel?.close().get()
         try await group?.shutdownGracefully()
         channel = nil
         group = nil
+        ProxyLogger.proxy.info("Proxy server stopped")
     }
 
     /// Replays a captured HTTP request.
@@ -113,6 +119,7 @@ final class ProxyServer {
         headers: [String: String],
         body: Data?
     ) async throws -> String {
+        ProxyLogger.replay.info("Replaying request: %@ %@", method, url.absoluteString)
         // For now, implement a simple HTTP client using URLSession
         // This is a temporary solution until we implement proper SwiftNIO client
         
@@ -131,11 +138,12 @@ final class ProxyServer {
         let (data, response) = try await URLSession.shared.data(for: request)
         
         if let httpResponse = response as? HTTPURLResponse {
-            print("Received response: \(httpResponse.statusCode)")
+            ProxyLogger.replay.debug("Received response: %d", httpResponse.statusCode)
             // Generate a unique exchange ID
             let exchangeId = UUID().uuidString
             return exchangeId
         } else {
+            ProxyLogger.replay.error("Unknown response type")
             throw NSError(domain: "com.roxproxy", code: 4, userInfo: [NSLocalizedDescriptionKey: "Unknown response type"])
         }
     }
