@@ -1,4 +1,5 @@
 import NIOCore
+import os.log
 
 /// Blindly relays bytes between two channels (inbound ↔ upstream).
 ///
@@ -18,27 +19,33 @@ final class TunnelHandler: ChannelDuplexHandler {
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         guard let peer else {
+            ProxyLogger.http.debug("TunnelHandler: no peer, closing")
             context.close(promise: nil)
             return
         }
         // Forward to peer; back-pressure: pause reads if peer write buffer grows
         let buf = unwrapInboundIn(data)
-        peer.writeAndFlush(NIOAny(buf)).whenFailure { _ in
+        ProxyLogger.http.debug("TunnelHandler: forwarding %d bytes to peer", buf.readableBytes)
+        peer.writeAndFlush(NIOAny(buf)).whenFailure { error in
+            ProxyLogger.http.error("TunnelHandler: write to peer failed: %@", error.localizedDescription)
             context.close(promise: nil)
         }
     }
 
     func channelReadComplete(context: ChannelHandlerContext) {
+        ProxyLogger.http.debug("TunnelHandler: channel read complete")
         context.flush()
     }
 
     // MARK: - Closure propagation
 
     func channelInactive(context: ChannelHandlerContext) {
+        ProxyLogger.http.debug("TunnelHandler: channel inactive")
         peer?.close(promise: nil)
     }
 
     func errorCaught(context: ChannelHandlerContext, error: Error) {
+        ProxyLogger.http.error("TunnelHandler: error caught: %@", error.localizedDescription)
         peer?.close(promise: nil)
         context.close(promise: nil)
     }

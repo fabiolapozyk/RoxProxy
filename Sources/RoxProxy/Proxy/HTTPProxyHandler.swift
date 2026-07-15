@@ -2,6 +2,7 @@ import Foundation
 import NIOCore
 import NIOPosix
 import NIOHTTP1
+import os.log
 import NIOSSL
 
 /// Main proxy channel handler.
@@ -55,6 +56,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
         let part = unwrapInboundIn(data)
         switch part {
         case .head(let head):
+            ProxyLogger.http.debug("Received request: %@ %@", head.method.rawValue, head.uri)
             handleHead(context: context, head: head)
         case .body(let buffer):
             handleBody(buffer: buffer)
@@ -64,10 +66,12 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
     }
 
     func channelInactive(context: ChannelHandlerContext) {
+        ProxyLogger.http.debug("Channel inactive")
         state = .idle
     }
 
     func errorCaught(context: ChannelHandlerContext, error: Error) {
+        ProxyLogger.error.error("Channel error: %@", error.localizedDescription)
         context.close(promise: nil)
     }
 
@@ -76,16 +80,19 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
     private func handleHead(context: ChannelHandlerContext, head: HTTPRequestHead) {
         guard case .idle = state else {
             // Pipelining not fully supported in v1 — close
+            ProxyLogger.http.error("Pipelining rejected: received request while state is not idle")
             context.close(promise: nil)
             return
         }
 
         if head.method == .CONNECT {
             // HTTPS tunnel — Step 6 / Step 7
+            ProxyLogger.http.debug("CONNECT request to %@", head.uri)
             handleCONNECT(context: context, head: head)
             return
         }
 
+        ProxyLogger.http.debug("HTTP request: %@ %@", head.method.rawValue, head.uri)
         state = .collecting(head: head, bodyParts: [])
     }
 
@@ -107,6 +114,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
         _ = context.channel.setOption(ChannelOptions.autoRead, value: false)
 
         let target  = Self.parseTarget(uri: head.uri, headers: head.headers)
+        ProxyLogger.http.debug("Request target: %{public}@:%d", target.host, target.port)
         let (bodyContent, bodySize) = RequestCapture.build(from: bodyParts)
 
         var requestHeaders: [(name: String, value: String)] = []
@@ -160,6 +168,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
             .whenComplete { result in
                 switch result {
                 case .success(let upstreamChannel):
+                    ProxyLogger.http.debug("Upstream connection established to %{public}@:%d", target.host, target.port)
                     upstreamChannel.write(NIOAny(HTTPClientRequestPart.head(outHead)), promise: nil)
                     for buf in bodyParts {
                         upstreamChannel.write(NIOAny(HTTPClientRequestPart.body(.byteBuffer(buf))), promise: nil)
@@ -167,6 +176,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
                     upstreamChannel.writeAndFlush(NIOAny(HTTPClientRequestPart.end(nil)), promise: nil)
 
                 case .failure(let error):
+                    ProxyLogger.error.error("Upstream connection failed to %{public}@:%d: %@", target.host, target.port, error.localizedDescription)
                     exchange.state   = .failed(error.localizedDescription)
                     exchange.endTime = Date()
                     Task { @MainActor in store.update(exchange) }
@@ -180,14 +190,17 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
 
     private func handleCONNECT(context: ChannelHandlerContext, head: HTTPRequestHead) {
         let target = Self.parseCONNECTTarget(authority: head.uri)
+        ProxyLogger.http.debug("HTTPS CONNECT to %{public}@:%d", target.host, target.port)
 
         // Decide: MITM (TLS interception) or blind tunnel
         let shouldMITM = domainCertCache != nil
             && domainRules.contains(where: { $0.matches(host: target.host) })
 
         if shouldMITM {
+            ProxyLogger.tls.info("MITM decryption enabled for %{public}@", target.host)
             establishMITM(context: context, head: head, host: target.host, port: target.port)
         } else {
+            ProxyLogger.tls.debug("Blind tunnel for %{public}@ (no MITM rule)", target.host)
             connectAndTunnel(context: context, head: head, host: target.host, port: target.port)
         }
     }
@@ -224,8 +237,10 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
                 guard let self else { return }
                 switch result {
                 case .success(let upstreamChannel):
+                    ProxyLogger.http.debug("Tunnel established to %{public}@:%d", host, port)
                     self.establishTunnel(context: context, upstreamChannel: upstreamChannel, exchange: exchange, store: store)
                 case .failure(let error):
+                    ProxyLogger.error.error("Tunnel connection failed to %{public}@:%d: %@", host, port, error.localizedDescription)
                     var failed = exchange
                     failed.state = .failed(error.localizedDescription)
                     failed.endTime = Date()
@@ -280,10 +295,12 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
         port: Int
     ) {
         guard let cache = domainCertCache else {
+            ProxyLogger.tls.error("MITM requested but domainCertCache is nil, falling back to blind tunnel")
             connectAndTunnel(context: context, head: head, host: host, port: port)
             return
         }
 
+        ProxyLogger.tls.info("Generating domain certificate for %{public}@", host)
         _ = context.channel.setOption(ChannelOptions.autoRead, value: false)
 
         // Synchronous certificate fetch from the lock-based cache
@@ -291,7 +308,9 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
         let key: NIOSSLPrivateKey
         do {
             (cert, key) = try cache.certificate(for: host)
+            ProxyLogger.tls.debug("Domain certificate generated for %{public}@", host)
         } catch {
+            ProxyLogger.tls.error("Failed to generate domain certificate for %{public}@: %@", host, error.localizedDescription)
             sendResponse(context: context, status: .badGateway)
             return
         }
@@ -304,11 +323,14 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
                 privateKey: .privateKey(key)
             )
             sslContext = try NIOSSLContext(configuration: tlsConfig)
+            ProxyLogger.tls.debug("TLS context created for MITM")
         } catch {
+            ProxyLogger.tls.error("Failed to create TLS context: %@", error.localizedDescription)
             sendResponse(context: context, status: .internalServerError)
             return
         }
 
+        ProxyLogger.tls.info("MITM TLS interception setup complete for %{public}@:%d", host, port)
         let sslHandler   = NIOSSLServerHandler(context: sslContext)
         let setupHandler = MITMSetupHandler(
             host: host, port: port, store: store, settingsStore: settingsStore

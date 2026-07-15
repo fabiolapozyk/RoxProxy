@@ -1,6 +1,7 @@
 import Foundation
 import NIOCore
 import NIOHTTP1
+import os.log
 
 /// Handles the upstream (server-side) connection for a plain HTTP proxy request.
 ///
@@ -43,6 +44,8 @@ final class OutboundHTTPHandler: ChannelInboundHandler {
             exchange.statusCode    = Int(head.status.code)
             exchange.statusMessage = head.status.reasonPhrase
             exchange.responseHeaders = head.headers.map { (name: $0.name, value: $0.value) }
+            
+            ProxyLogger.http.debug("Received upstream response: %d %@", head.status.code, head.status.reasonPhrase ?? "")
 
             // Forward response head to client
             let responseHead = HTTPResponseHead(
@@ -64,6 +67,7 @@ final class OutboundHTTPHandler: ChannelInboundHandler {
             )
 
         case .end(let trailers):
+            ProxyLogger.http.debug("Upstream response complete")
             finalizeAndForward(trailers: trailers)
             context.close(promise: nil)
         }
@@ -72,11 +76,13 @@ final class OutboundHTTPHandler: ChannelInboundHandler {
     func channelInactive(context: ChannelHandlerContext) {
         // Upstream closed connection without a proper HTTP end (e.g. Connection: close)
         if exchange.state == .inProgress && responseStarted {
+            ProxyLogger.http.debug("Upstream connection closed without proper HTTP end")
             finalizeAndForward(trailers: nil)
         }
     }
 
     func errorCaught(context: ChannelHandlerContext, error: Error) {
+        ProxyLogger.error.error("Upstream error: %@", error.localizedDescription)
         if exchange.state == .inProgress {
             exchange.state   = .failed(error.localizedDescription)
             exchange.endTime = Date()
@@ -97,6 +103,8 @@ final class OutboundHTTPHandler: ChannelInboundHandler {
         exchange.responseSize = responseCapture.totalBytes
         exchange.endTime      = Date()
         exchange.state        = .completed
+        
+        ProxyLogger.http.debug("Exchange completed: %@ %@ -> %d", exchange.method, exchange.url, exchange.statusCode ?? 0)
 
         let snapshot = exchange
         let store    = self.store

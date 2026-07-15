@@ -2,6 +2,7 @@ import Foundation
 import NIOCore
 import NIOPosix
 import NIOHTTP1
+import os.log
 
 /// Manages the lifecycle of the local HTTP proxy server built on SwiftNIO.
 final class ProxyServer {
@@ -45,6 +46,7 @@ final class ProxyServer {
     /// Starts the proxy server, binding to `127.0.0.1:<port>`.
     /// Throws if the port is already in use or another bind error occurs.
     func start() async throws {
+        ProxyLogger.proxy.info("Starting proxy server on port %d", port)
         let group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
         self.group = group
 
@@ -54,6 +56,8 @@ final class ProxyServer {
         let certCache     = self.domainCertCache
         let domainRules   = self.domainRules
         let timeoutSecs   = self.connectionTimeoutSeconds
+        
+        ProxyLogger.proxy.debug("Proxy configuration: timeout=%ds, domainRules=%d", timeoutSecs, domainRules.count)
 
         let bootstrap = ServerBootstrap(group: group)
             .serverChannelOption(ChannelOptions.backlog, value: 256)
@@ -89,7 +93,10 @@ final class ProxyServer {
 
         do {
             channel = try await bootstrap.bind(host: "127.0.0.1", port: port).get()
+            ProxyLogger.proxy.info("Proxy server bound to 127.0.0.1:%d", port)
         } catch {
+            ProxyLogger.proxy.error("Failed to bind to port %d: %@", port, error.localizedDescription)
+            ProxyLogger.error.error("Bind failed on port %d: %@", port, error.localizedDescription)
             try? await group.shutdownGracefully()
             self.group = nil
             throw ProxyError.bindFailed(port: port, underlying: error)
@@ -98,10 +105,12 @@ final class ProxyServer {
 
     /// Stops the proxy server gracefully.
     func stop() async throws {
+        ProxyLogger.proxy.info("Stopping proxy server")
         try await channel?.close().get()
         try await group?.shutdownGracefully()
         channel = nil
         group = nil
+        ProxyLogger.proxy.info("Proxy server stopped")
     }
 
     // MARK: - Errors

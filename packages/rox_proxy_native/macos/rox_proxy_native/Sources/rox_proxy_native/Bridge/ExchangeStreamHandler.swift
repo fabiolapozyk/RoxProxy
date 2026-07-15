@@ -1,5 +1,6 @@
 import Foundation
 import FlutterMacOS
+import os.log
 
 /// FlutterStreamHandler for the 'com.roxproxy/exchanges' EventChannel.
 /// Receives serialized exchange events from BridgeSessionStore and pushes
@@ -11,11 +12,13 @@ final class ExchangeStreamHandler: NSObject, FlutterStreamHandler {
     // MARK: - FlutterStreamHandler
 
     func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+        ProxyLogger.proxy.debug("Exchange stream handler: onListen called")
         eventSink = events
         return nil
     }
 
     func onCancel(withArguments arguments: Any?) -> FlutterError? {
+        ProxyLogger.proxy.debug("Exchange stream handler: onCancel called")
         eventSink = nil
         return nil
     }
@@ -28,7 +31,11 @@ final class ExchangeStreamHandler: NSObject, FlutterStreamHandler {
         exchange: CapturedExchange,
         bodyRefs: (request: String?, response: String?)
     ) {
-        guard let sink = eventSink else { return }
+        ProxyLogger.http.debug("Sending exchange event to Flutter: type=%@, url=%@", type, exchange.url)
+        guard let sink = eventSink else {
+            ProxyLogger.http.error("Exchange stream handler: eventSink is nil, cannot send event")
+            return 
+        }
         let dict: [String: Any?] = [
             "type":     type,
             "exchange": ExchangeSerializer.serialize(exchange, bodyRefs: bodyRefs),

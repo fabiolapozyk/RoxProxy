@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import os.log
 
 /// Detects unclean shutdowns (crashes) and ensures the system proxy is
 /// restored when the app restarts.
@@ -34,16 +35,23 @@ final class CrashGuard {
     /// Call on launch.  If a sentinel file is found, a previous run crashed with
     /// the proxy active — disable it now and remove the file.
     func recoverIfNeeded() {
-        guard FileManager.default.fileExists(atPath: sentinelURL.path) else { return }
+        ProxyLogger.crashGuard.info("Checking for crash recovery")
+        guard FileManager.default.fileExists(atPath: sentinelURL.path) else {
+            ProxyLogger.crashGuard.debug("No sentinel file found, no crash recovery needed")
+            return 
+        }
 
+        ProxyLogger.crashGuard.error("Crash detected! Sentinel file found at %@", sentinelURL.path)
         // Attempt to restore proxy on all services (we don't know which were set)
         SystemProxyManager.forceDisableOnAllServices()
         clearSentinel()
+        ProxyLogger.crashGuard.info("Crash recovery completed: system proxy disabled")
     }
 
     // MARK: - Sentinel file
 
     func writeSentinel(port: Int) {
+        ProxyLogger.crashGuard.debug("Writing sentinel file for port %d", port)
         let dir = sentinelURL.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let data = "\(port)".data(using: .utf8)
@@ -51,6 +59,7 @@ final class CrashGuard {
     }
 
     func clearSentinel() {
+        ProxyLogger.crashGuard.debug("Clearing sentinel file")
         try? FileManager.default.removeItem(at: sentinelURL)
     }
 
@@ -60,6 +69,7 @@ final class CrashGuard {
     /// graceful `NSApplication.terminate(_:)` call so `applicationWillTerminate`
     /// (and therefore proxy cleanup) runs before exit.
     func installSignalHandlers() {
+        ProxyLogger.crashGuard.info("Installing signal handlers for SIGTERM and SIGINT")
         // Use a DispatchSource for safe signal handling — avoids the async-signal-safety
         // restrictions of POSIX signal handlers.
         installDispatchSignalHandler(for: SIGTERM)
@@ -72,12 +82,14 @@ final class CrashGuard {
 
         let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
         source.setEventHandler {
+            ProxyLogger.crashGuard.info("Received signal %d, triggering graceful termination", sig)
             // Trigger a normal application termination flow
             NSApplication.shared.terminate(nil)
         }
         source.resume()
         // Keep a strong reference so the source isn't deallocated
         CrashGuard.signalSources.append(source)
+        ProxyLogger.crashGuard.debug("Signal handler installed for signal %d", sig)
     }
 
     /// Storage for DispatchSource objects (must remain alive for the signal to be caught).
