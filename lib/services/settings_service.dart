@@ -1,19 +1,15 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:path_provider/path_provider.dart';
-
 import '../models/proxy_settings.dart';
+import '../utils/path_utils.dart';
 
 class SettingsService {
   static const _fileName = 'settings.json';
-  static const _appSupportDir = 'RoxProxy';
 
   Future<File> _settingsFile() async {
-    final appSupport = await getApplicationSupportDirectory();
-    final dir = Directory('${appSupport.path}/$_appSupportDir');
-    if (!dir.existsSync()) dir.createSync(recursive: true);
-    return File('${dir.path}/$_fileName');
+    final filePath = PathUtils.getFilePath(_fileName);
+    return File(filePath);
   }
 
   Future<ProxySettings> load() async {

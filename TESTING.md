@@ -1,161 +1,303 @@
 # Testing Guide
 
-This document covers the testing infrastructure for Rox Proxy, including how to write, organize, and troubleshoot tests.
+## 🎯 Testing Philosophy
 
-## Running Tests
+**Obiettivi:**
+1. **Copertura completa** del flow proxy (HTTP, HTTPS, MITM, Tunnel)
+2. **Test veloci** per sviluppo iterativo
+3. **Test affidabili** per CI/CD
+4. **Minimo boilerplate** per aggiungere nuovi test
 
-### Swift Tests (Unit & Integration)
+**Strategia:**
+- **Unit tests** (Swift): Logica isolata dei singoli componenti
+- **Integration tests** (Swift): Interazione tra componenti
+- **System tests** (Swift): Integrazione con sistema (networksetup, Keychain)
+- **E2E tests** (Flutter): Flow completo con richieste reali
 
-The project includes comprehensive test coverage for the Swift proxy core using the native `swift test` framework.
+## 🏃 Running Tests
+
+### Swift Tests
 
 ```bash
-# Run all Swift tests
+# Tutti i test Swift
 swift test
 
-# Run specific test suite
+# Test specifici
 swift test Tests.RoxProxyTests.Handlers
+swift test --filter HTTPProxyHandlerTests
 
-# Run with code coverage
+# Con code coverage
 swift test --enable-code-coverage
 ```
 
-**Test Structure:**
+### Flutter E2E Tests
+
+```bash
+# Tutti gli E2E test
+flutter test integration_test/
+
+# Test specifico
+flutter test integration_test/proxy_e2e_test.dart
+
+# Verbose
+flutter test -v integration_test/
+```
+
+## 📁 Test Structure
+
 ```
 Tests/RoxProxyTests/
-├── TestHarness/              # Proxy lifecycle management
-│   └── TestHarness.swift      # Automatic port selection, CA generation
-├── TestUtilities/           # Helper classes
+├── TestHarness/              # Gestione lifecycle proxy per test
+│   └── TestHarness.swift    # Port automatica, CA generation, cleanup
+├── TestUtilities/           # Helper per test
 │   └── CertificateTestHelper.swift
-├── Mocks/                   # Mock implementations for NIO components
+├── Mocks/                   # Mock per SwiftNIO
+│   ├── MockChannelHandlerContext.swift
+│   ├── MockChannel.swift
+│   ├── MockChannelPipeline.swift
+│   ├── MockEventLoop.swift
 │   ├── MockProxySessionStore.swift
-│   ├── MockSettingsStore.swift
-│   └── MockChannelHandlerContext.swift
-├── Handlers/                # Unit tests for proxy handlers
+│   └── MockSettingsStore.swift
+├── Handlers/                # Unit test per handler
 │   ├── HTTPProxyHandlerTests.swift
 │   ├── OutboundHTTPHandlerTests.swift
 │   ├── TunnelHandlerTests.swift
 │   └── MITMHandlerTests.swift
-└── ProxyServerIntegrationTests.swift
+├── ProxyServerIntegrationTests.swift
+├── SystemProxyManagerTests.swift
+└── CrashGuardTests.swift
+
+integration_test/
+├── proxy_e2e_test.dart      # HTTP/HTTPS interception
+├── proxy_tls_error_test.dart # TLS errors, connection failures
+└── proxy_system_test.dart   # System proxy config
 ```
 
-### Flutter Tests (E2E)
+## ✍️ Test Naming Convention
 
-End-to-end tests that verify the proxy works with real HTTP/HTTPS requests through the Flutter-Swift bridge.
+| Tipo | Convenzione | Esempio |
+|------|-------------|---------|
+| Unit test | `[Class][Method]Test` | `HTTPProxyHandlerParseTargetTest` |
+| Integration | `[Feature]IntegrationTest` | `FullProxyFlowIntegrationTest` |
+| System | `[Component]SystemTest` | `SystemProxyManagerSystemTest` |
+| E2E | Descrittivo | `proxy intercepts HTTP GET requests` |
 
-```bash
-# Run all E2E tests
-flutter test integration_test/
+## 📝 Linee Guida per Nuovi Test
 
-# Run specific E2E test file
-flutter test integration_test/proxy_e2e_test.dart
+### 1. Swift Unit Tests
 
-# Run with verbose output
-flutter test -v integration_test/
-```
+**Quando scrivere**: Per ogni nuovo handler o logica complessa
 
-**E2E Test Coverage:**
-- HTTP GET/POST request interception
-- Request/response header capture
-- Response status code capture
-- HTTPS CONNECT tunnel creation
-- Real server requests (example.com, httpbin.org)
-- Body capture for POST requests
-
-## Test Architecture
-
-### Layered Testing Approach
-
-| Layer | Framework | Purpose | Location |
-|-------|-----------|---------|----------|
-| **Unit Tests** | Swift Testing | Test individual handlers in isolation | `Tests/RoxProxyTests/Handlers/` |
-| **Integration Tests** | Swift Testing | Test component interactions | `Tests/RoxProxyTests/ProxyServerIntegrationTests.swift` |
-| **System Tests** | Swift Testing | Test system proxy config and crash recovery | `Tests/RoxProxyTests/` |
-| **E2E Tests** | Flutter integration_test | Test full proxy flow with real network calls | `integration_test/` |
-
-### Test Harness
-
-The `TestHarness` class provides a centralized way to manage proxy lifecycle during tests:
-
+**Template:**
 ```swift
-// Create harness with automatic port selection
-let harness = try TestHarness(portRange: 18000...19000)
+import Testing
+@testable import RoxProxy
 
-// Start proxy
-try await harness.start()
+@Suite struct NewHandlerTests {
+    @Test func handlerDoesX() async throws {
+        // Arrange
+        let mockContext = MockChannelHandlerContext()
+        let mockStore = MockProxySessionStore()
+        let handler = NewHandler(store: mockStore)
 
-// Make requests through proxy
-let (statusCode, body) = try await harness.makeRequest(
-    to: "http://example.com",
-    method: "GET"
-)
+        // Act
+        try await handler.doSomething()
 
-// Stop proxy
-try await harness.stop()
-```
-
-Features:
-- Automatic port selection (avoids conflicts)
-- MITM certificate generation for HTTPS tests
-- Thread-safe with `@MainActor` mock stores
-- Automatic cleanup of temporary resources
-
-### Mock Components
-
-All SwiftNIO components are mocked for unit testing:
-
-- **MockChannelHandlerContext** - Captures writes, flushes, closes
-- **MockChannel** - Tracks write/read operations
-- **MockChannelPipeline** - Manages handler chain
-- **MockEventLoop** - Provides realistic event loop simulation
-- **MockProxySessionStore** - Thread-safe exchange storage
-- **MockSettingsStore** - Thread-safe settings management
-
-## Expanding Test Coverage
-
-### Missing Test Areas
-
-- Connection timeout handling (partially covered in Dart TLS error tests)
-- Body truncation at 10MB limit
-- TLS handshake errors
-
-**Recently Added Coverage:**
-- ✅ Pipelining rejection - Swift unit tests in `HTTPProxyHandlerPipeliningTests`
-- ✅ Network error scenarios (connection reset, DNS failure) - Dart tests in `TLS Error Tests - Network Error Scenarios` group
-- ✅ System proxy configuration - Swift unit tests in `SystemProxyManagerTests`
-- ✅ Crash recovery scenarios - Swift unit tests in `CrashGuardTests`
-
-### Example Tests
-
-**Swift - Timeout handling:**
-```swift
-@Test func proxyHandlesConnectionTimeout() async throws {
-    let harness = try TestHarness()
-    try await harness.start()
-    defer { try? await harness.stop() }
-    
-    harness.settingsStore.setConnectionTimeout(1)
-    
-    // Try to connect to non-responsive server
-    // Verify timeout error is captured
+        // Assert
+        #expect(mockStore.receivedCall)
+        #expect(mockContext.writes.count == 1)
+    }
 }
 ```
 
-**Dart - Certificate endpoint:**
+**Best practices:**
+- Usa **sempre** `TestHarness` per test che richiedono proxy avviato
+- Usa **sempre** mock per componenti esterni (NIO, Keychain)
+- Testa **tutti** i percorsi: success, error, edge cases
+- Mantieni test **veloci** (< 100ms cadauno)
+
+### 2. Flutter E2E Tests
+
+**Quando scrivere**: Per funzionalità utente visibili
+
+**Template:**
 ```dart
-testWidgets('Certificate endpoint serves CA certificate', (tester) async {
-  final response = await HttpClient().getUrl(
-    Uri.parse('http://127.0.0.1:$proxyPort/cert.roxproxy/')
+testWidgets('Feature X works correctly', (tester) async {
+  // Setup
+  final proxyChannel = ProxyChannel();
+  await proxyChannel.startProxy(port: 19999);
+
+  // Act
+  final response = await http.get(
+    Uri.parse('http://example.com'),
+    proxy: 'http://127.0.0.1:19999',
   );
+
+  // Assert
   expect(response.statusCode, equals(200));
+
+  // Cleanup
+  await proxyChannel.stopProxy();
 });
 ```
 
-## CI/CD Configuration
+**Best practices:**
+- Usa **sempre** porte uniche (range 18000-25000)
+- **Attendi** che il proxy sia pronto (`await Future.delayed(...)`)
+- **Pulisc** sempre: stop proxy, rimuovi temp files
+- Usa `try/catch` per gestire errori attesi
 
-Example GitHub Actions workflow:
+### 3. Testing Error Scenarios
 
+**Importante**: Testa **sempre** i casi di errore
+
+**Errori da testare:**
+- ✅ Timeout connessione
+- ✅ DNS failure
+- ✅ Connection reset
+- ✅ TLS handshake error
+- ✅ Certificate error
+- ✅ Invalid HTTP request
+- ✅ Body size limit (10MB)
+- ✅ Pipelining rejection
+
+**Esempio:**
+```swift
+@Test func proxyHandlesConnectionTimeout() async throws {
+    let harness = try TestHarness(portRange: 18000...19000)
+    harness.settingsStore.setConnectionTimeout(1) // 1 secondo
+
+    try await harness.start()
+    defer { try? await harness.stop() }
+
+    // Connetti a server non rispondente
+    do {
+        _ = try await harness.makeRequest(to: "http://10.255.255.1:9999")
+        #expect(Bool(false), "Dovrebbe lanciare timeout")
+    } catch {
+        #expect(error is TimeoutError)
+    }
+}
+```
+
+### 4. Test con MITM
+
+**Setup required**: CA installato nel Keychain di test
+
+**Template:**
+```swift
+@Test func mitmDecryptsHTTPSRequest() async throws {
+    let harness = try TestHarness(
+        portRange: 18000...19000,
+        mitmDomains: ["example.com"]
+    )
+
+    try await harness.start()
+    defer { try? await harness.stop() }
+
+    // Fai richiesta HTTPS
+    let (status, body) = try await harness.makeRequest(
+        to: "https://example.com",
+        method: "GET"
+    )
+
+    #expect(status == 200)
+    #expect(!body.isEmpty)
+}
+```
+
+**Best practices:**
+- Aggiungi dominio a `mitmDomains` nel TestHarness
+- Usa `client.badCertificateCallback = (_, _, _) => true` per test Dart
+- Testa **sempre** sia il path MITM che Tunnel
+
+## 🛠️ Test Utilities
+
+### TestHarness (Swift)
+
+Gestisce automaticamente:
+- Selezione porta (range configurabile)
+- Generazione CA per MITM
+- Avvio/stop proxy
+- Cleanup risorse
+
+**Uso:**
+```swift
+let harness = try TestHarness(
+    portRange: 20000...25000,  // Default: 18000...19000
+    mitmDomains: ["example.com", "httpbin.org"]
+)
+
+try await harness.start()
+// ... test logic
+try await harness.stop()
+```
+
+**Metodi utili:**
+```swift
+// Fai richiesta HTTP/HTTPS attraverso il proxy
+let (statusCode, body) = try await harness.makeRequest(
+    to: "https://example.com",
+    method: "GET",
+    headers: ["Accept": "application/json"],
+    body: Data("test".utf8)
+)
+
+// Ottieni lo store delle sessioni (per verifiche)
+let exchanges = harness.sessionStore.exchanges
+```
+
+### Mock Components
+
+Tutti i componenti SwiftNIO sono mockati:
+
+| Mock | Utilizzo |
+|------|----------|
+| `MockChannelHandlerContext` | Captura write/flush/close |
+| `MockChannel` | Traccia operazioni read/write |
+| `MockChannelPipeline` | Gestisce handler chain |
+| `MockEventLoop` | Simula event loop |
+| `MockProxySessionStore` | Storage thread-safe per test |
+| `MockSettingsStore` | Gestione settings per test |
+
+## 🔍 Debugging Test
+
+### Swift Tests Falliscono con "Port Already in Use"
+
+**Soluzioni:**
+1. Aumenta il range di porte:
+   ```swift
+   TestHarness(portRange: 20000...25000)
+   ```
+2. Fermare altri proxy in esecuzione:
+   ```bash
+   lsof -i :18000-19000
+   kill -9 <PID>
+   ```
+3. Usa porte casuali:
+   ```swift
+   TestHarness(portRange: Int.random(in: 20000...25000)...Int.random(in: 20000...25000))
+   ```
+
+### Flutter E2E Tests Falliscono con Connection Refused
+
+**Checklist:**
+- [ ] Proxy avviato: `await proxyChannel.startProxy(...)`
+- [ ] Proxy in ascolto: `netstat -an | grep <port>`
+- [ ] Attesa sufficientemente lunga: `await Future.delayed(Duration(milliseconds: 500))`
+- [ ] Porta non bloccata da firewall
+- [ ] CA trust configurato (per HTTPS)
+
+### Test Falliscono su CI ma Passano Locally
+
+**Soluzioni:**
+- Aumenta timeout nei test
+- Usa range di porte uniche per ogni job CI
+- Aggiungi retry logic per test flaky
+- Assicurati che tutti i file temporanei siano puliti
+
+**Esempio CI (GitHub Actions):**
 ```yaml
-# .github/workflows/test.yml
 name: Test
 
 on: [push, pull_request]
@@ -167,53 +309,109 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Flutter
         uses: subosito/flutter-action@v2
+      - name: Run Swift tests
+        run: swift test --enable-code-coverage
       - name: Run Flutter E2E tests
         run: flutter test integration_test/
-      - name: Run Swift tests
-        run: swift test
 ```
 
-## Troubleshooting
+## 📊 Code Coverage
 
-### Swift Tests Fail with "Port Already in Use"
+**Obiettivo**: > 80% coverage
 
-Each test harness uses automatic port selection. If ports are exhausted:
-- Increase the port range: `TestHarness(portRange: 20000...25000)`
-- Stop other proxy instances running on your machine
-- Use `lsof -i :18000-19000` to find conflicting processes
+**Comando:**
+```bash
+# Swift coverage
+swift test --enable-code-coverage
+xcrun llvm-cov show -instr-profile .build/debug/codecov/default.profdata \
+  -object .build/debug/RoxProxyPackageTests.xctest/Contents/MacOS/RoxProxyPackageTests \
+  -format=text
 
-### Flutter E2E Tests Fail with Connection Refused
+# Flutter coverage
+flutter test --coverage integration_test/
+genhtml coverage/lcov.info -o coverage/html
+open coverage/html/index.html
+```
 
-- Verify proxy is started: `await proxyChannel.startProxy(...)`
-- Check proxy is listening: `netstat -an | grep 19999`
-- Ensure test waits for proxy to start: `await Future.delayed(Duration(milliseconds: 500))`
-- Verify port is not blocked by firewall
+## ✅ Checklist prima di Push
 
-### Tests Fail on CI but Pass Locally
+- [ ] Tutti i test Swift passano (`swift test`)
+- [ ] Tutti i test Flutter passano (`flutter test integration_test/`)
+- [ ] Nuovi test aggiunti per nuova funzionalita
+- [ ] Test aggiornati per bugfix
+- [ ] Log aggiunti per debugging (os_log)
+- [ ] Documentazione aggiornata (MISTRAL.md, TESTING.md, README.md)
 
-- CI may have stricter security policies
-- Add retry logic for flaky tests
-- Use unique port ranges for each CI job
-- Ensure all temporary files are cleaned up in `tearDownAll`
+## 🚨 Common Pitfalls
 
-### MITM Tests Fail with Certificate Errors
+1. **Dimenticare di stoppare il proxy**:
+   ```swift
+   // ❌ SBAGLIATO - Proxy rimane in esecuzione
+   func testSomething() async throws {
+       let harness = try TestHarness()
+       try await harness.start()
+       // ... test
+       // Missing: try await harness.stop()
+   }
 
-- Install CA certificate in test environment
-- Use `client.badCertificateCallback = (cert, host, port) => true`
-- For Flutter tests: implement CA trust setup in `setUpAll`
+   // ✅ GIUSTO - Cleanup con defer
+   func testSomething() async throws {
+       let harness = try TestHarness()
+       try await harness.start()
+       defer { try? await harness.stop() }
+       // ... test
+   }
+   ```
 
-## Test Naming Convention
+2. **Non gestire gli errori**:
+   ```swift
+   // ❌ SBAGLIATO - Test fallisce su qualsiasi errore
+   @Test func testRequest() async throws {
+       let (status, _) = try await harness.makeRequest(to: "http://example.com")
+       #expect(status == 200)
+   }
 
-- **Unit tests**: `[ClassName][MethodName]Test` (e.g., `HTTPProxyHandlerParseTargetTest`)
-- **Integration tests**: `[Feature]IntegrationTest` (e.g., `FullProxyFlowIntegrationTest`)
-- **E2E tests**: Descriptive names (e.g., `proxy intercepts HTTP GET requests`)
+   // ✅ GIUSTO - Gestione errori esplicita
+   @Test func testRequest() async throws {
+       do {
+           let (status, _) = try await harness.makeRequest(to: "http://example.com")
+           #expect(status == 200)
+       } catch {
+           #expect(Bool(false), "Request failed: \(error)")
+       }
+   }
+   ```
 
-## Guidelines
+3. **Test troppo lenti**:
+   ```swift
+   // ❌ SBAGLIATO - Timeout troppo lungo
+   harness.settingsStore.setConnectionTimeout(30) // 30 secondi!
 
-When adding new features:
+   // ✅ GIUSTO - Timeout breve per test
+   harness.settingsStore.setConnectionTimeout(1) // 1 secondo
+   ```
 
-1. **Add unit tests** for new handler logic
-2. **Add integration tests** for component interactions
-3. **Add E2E tests** for user-facing functionality
-4. **Run all tests** before creating a PR
-5. **Update documentation** in this file
+4. **Dimenticare di loggare**:
+   ```swift
+   // ❌ SBAGLIATO - Nessun log per debugging
+   func handleRequest() {
+       // ... complex logic
+   }
+
+   // ✅ GIUSTO - Log a diversi livelli
+   func handleRequest() {
+       ProxyLogger.http.debug("Handling request")
+       // ... logic
+       if error {
+           ProxyLogger.http.error("Request failed: %@", error)
+       }
+   }
+   ```
+
+## 📚 Risorse Utili
+
+- [Swift Testing Framework](https://github.com/apple/swift-testing)
+- [Flutter Integration Testing](https://docs.flutter.dev/testing/integration-tests)
+- [os_log Documentation](https://developer.apple.com/documentation/os/logging)
+- [Console.app Usage](https://support.apple.com/guide/console/welcome/mac)
+

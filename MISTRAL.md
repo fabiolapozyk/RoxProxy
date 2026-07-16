@@ -1,93 +1,145 @@
 # MISTRAL.md
 
-This file provides guidance to Mistral Vibe when working with code in this repository.
+Guida per Mistral Vibe per lo sviluppo di Rox Proxy.
 
-## Commands
+## 🚀 Commands
 
 ```bash
-# Build (Flutter macOS app)
+# Build Flutter app
 flutter build macos
 
-# Run (debug)
+# Run debug
 flutter run -d macos
 
-# Test (Dart)
+# Test Dart
 flutter test
 
-# Build Swift plugin only (for quick compilation check)
-cd packages/rox_proxy_native && swift build
+# Test Swift
+cd packages/rox_proxy_native && swift test
+
+# Run specific Swift test
+swift test Tests.RoxProxyTests --filter HTTPProxyHandlerTests
+
+# View logs (os_log)
+log show --predicate 'subsystem == "com.roxproxy"' --last 1h
+log stream --predicate 'subsystem == "com.roxproxy"'
 ```
 
-## Architecture
+## 🏗️ Architecture
 
-RoxProxy is a macOS 14+ desktop app that intercepts HTTP/HTTPS traffic. The **UI is Flutter/Dart**; all native proxy logic lives in a local Flutter plugin (`packages/rox_proxy_native`) written in Swift with SwiftNIO.
+**Principi base:**
+1. **Minimalismo**: Meno dipendenze = meno problemi
+2. **Sicurezza prima**: Non compromettere la sicurezza per semplificare
+3. **Separazione chiara**: UI (Flutter) ↔ Business Logic (Swift)
+4. **Os_log per tutto**: Logging nativo macOS, visibile in Console.app
 
-### Project layout
-
+**Project Layout:**
 ```
-lib/                         # Flutter/Dart app
-  main.dart                  # Entry point: ProviderScope + RoxProxyApp
-  app.dart                   # MaterialApp with Material 3 theme
-  models/                    # Dart models (CapturedExchange, DomainRule, ProxySettings, ProxyState)
-  services/                  # ProxyChannel (MethodChannel/EventChannel), SettingsService (JSON)
-  providers/                 # Riverpod providers (exchange list, settings, proxy state, CA trust)
-  utils/                     # DataFormatting, BodyRenderer
-  ui/
-    main_window.dart         # Root scaffold: toolbar, sidebar, detail pane
-    request_list/            # Virtualized exchange list
-    detail/                  # Detail view: headers tab + lazy body tab
-    settings/                # Settings dialog (General, HTTPS Domains, Certificate)
-    components/              # Shared widgets (MethodBadge, StatusIndicator, etc.)
+lib/                          # Flutter UI + State (Riverpod)
+  utils/
+    uuid.dart                 # Custom UUID v4 generator
+    path_utils.dart           # Application Support directory
+  services/                   # ProxyChannel (Flutter ↔ Swift)
+  providers/                  # Riverpod-based state management
+  models/                     # Data models
+  ui/                         # Widgets
 
-packages/rox_proxy_native/   # Local Flutter plugin (Swift)
-  macos/rox_proxy_native/
-    Sources/rox_proxy_native/
-      Bridge/                # NEW: RoxProxyNativePlugin, ProxyMethodHandler,
-                             #      ExchangeStreamHandler, BridgeSessionStore,
-                             #      BodyStore, ExchangeSerializer
-      Proxy/                 # SwiftNIO handlers (HTTPProxyHandler, MITMHandler, etc.)
-      Certificate/           # CertificateAuthority, DomainCertificateCache, KeychainInstaller
-      SystemProxy/           # SystemProxyManager, CrashGuard
-      Models/                # CapturedExchange, DomainRule, ProxySettings (Swift side)
-      Utilities/             # GzipDecompressor
+packages/rox_proxy_native/    # Swift Plugin
+  Sources/rox_proxy_native/
+    Bridge/                   # Flutter ↔ Swift communication
+    Proxy/                    # SwiftNIO handlers (HTTP, HTTPS, Tunnel, MITM)
+    Certificate/              # CA generation, domain certs, Keychain
+    SystemProxy/              # networksetup, crash recovery
+    Models/                   # Swift-side data models
+    Utilities/                # ProxyLogger (os_log), GzipDecompressor
 ```
 
-### Platform channels
+## 📡 Platform Channels
 
-- **MethodChannel** `com.roxproxy/control` — Flutter → Swift: `startProxy`, `stopProxy`, `getProxyState`, `installCACertificate`, `checkCATrust`, `getCAStatus`, `fetchBody`, `releaseBody`, `releaseAllBodies`, `decompressBody`
-- **EventChannel** `com.roxproxy/exchanges` — Swift → Flutter: streams `{type: "new"|"update", exchange: {...}}` maps
+| Channel | Direction | Methods |
+|---------|-----------|---------|
+| `com.roxproxy/control` | Flutter → Swift | `startProxy`, `stopProxy`, `getProxyState`, `installCACertificate`, `checkCATrust`, `getCAStatus`, `fetchBody`, `releaseBody`, `releaseAllBodies`, `decompressBody` |
+| `com.roxproxy/exchanges` | Swift → Flutter | Stream events: `{type: "new"|"update", exchange: {...}}` |
 
-### Request flow (Swift side)
+## 🔧 Request Flow (Swift)
 
-1. **`ProxyServer`** — SwiftNIO `ServerBootstrap` on `127.0.0.1:<port>`. Each connection gets an HTTP codec + `HTTPProxyHandler`.
-2. **`HTTPProxyHandler`** — plain HTTP: forwards via `OutboundHTTPHandler`; `CONNECT`: tunnels blindly (`TunnelHandler`) or MITM-intercepts if host matches a `DomainRule`.
-3. **MITM path** — `CertificateAuthority` issues a forged leaf cert → `NIOSSLServerHandler` → `MITMSetupHandler` → `MITMHandler` makes upstream TLS connection and captures the exchange.
-4. **`BridgeSessionStore`** (replaces the old `ProxySessionStore`) — receives NIO thread callbacks via `Task { @MainActor in ... }` and pushes serialized events to the Flutter EventChannel via `ExchangeStreamHandler`.
+1. **ProxyServer** - SwiftNIO `ServerBootstrap` su `0.0.0.0:port`
+2. **HTTPProxyHandler** - Gestisce richieste HTTP plain
+3. **CONNECT** - Tunnel blind o MITM interception (se dominio in regole)
+4. **MITMHandler** - TLS decryption con certificato forgiato
+5. **BridgeSessionStore** - Riceve callbacks da thread NIO, invia eventi a Flutter
 
-### Body transfer pattern
+## 📦 Body Transfer
 
-Bodies are NOT inlined in events. Swift stores `Data` in `BodyStore` keyed by UUID; the event carries a `requestBodyRef`/`responseBodyRef` string. Dart calls `fetchBody(ref)` lazily when the user opens an exchange. `FlutterStandardTypedData` transfers `Uint8List` as raw bytes.
+Bodies **non** inlined negli eventi:
+- Swift: memorizza `Data` in `BodyStore` (key = UUID)
+- Event: contiene `requestBodyRef`/`responseBodyRef`
+- Dart: chiama `fetchBody(ref)` lazy quando l'utente apre lo scambio
 
-### Dart state management (Riverpod)
+## 🛡️ Security
 
-| Provider | Type | Purpose |
-|---|---|---|
-| `proxyChannelProvider` | `Provider` | Singleton `ProxyChannel` |
-| `settingsProvider` | `StateNotifierProvider` | `ProxySettings`, persisted to JSON |
-| `proxyStateProvider` | `StateNotifierProvider` | `ProxyState` sealed class |
-| `exchangeListProvider` | `StateNotifierProvider` | Live list, fed by EventChannel stream |
-| `filteredExchangesProvider` | `Provider` (derived) | Filtered by `filterTextProvider` |
-| `selectedExchangeProvider` | `Provider` (derived) | Currently selected exchange |
-| `caTrustProvider` | `StateNotifierProvider` | CA initialized/trusted state |
+- App Sandbox **disabilitato** (necessario per TCP binding, networksetup, Keychain)
+- CA self-signed P-256 generato al primo avvio
+- Certificati per dominio generati on-demand e cachati
+- `KeychainInstaller` installa CA nel System Keychain
 
-### Certificate infrastructure
+## 💡 Development Guidelines
 
-`CertificateAuthority` generates a self-signed P-256 root CA on first launch, stored in `~/Library/Application Support/RoxProxy/`. Per-domain leaf certs are signed on demand and cached by `DomainCertificateCache`. `KeychainInstaller` installs the root CA into the macOS System Keychain.
+### Aggiungere nuove feature:
 
-### macOS entitlements
+1. **Swift side**:
+   - Aggiungi handler/logica in `packages/rox_proxy_native/Sources/...`
+   - Aggiungi metodo in `ProxyMethodHandler` se serve esposizione a Flutter
+   - Aggiungi categoria di log in `ProxyLogger.swift`
 
-App Sandbox is **disabled** (required for TCP binding, `networksetup` subprocess, Keychain trust). Network client + server entitlements are enabled.
+2. **Flutter side**:
+   - Aggiungi metodo in `ProxyChannel`
+   - Aggiungi Provider se serve state
+   - Aggiungi widget in `lib/ui/`
 
-### Crash recovery
+3. **Testing**:
+   - Swift: unit test con `TestHarness` (vedi TESTING.md)
+   - Flutter: E2E test in `integration_test/`
 
-Swift registers `NSApplication.willTerminateNotification` in `RoxProxyNativePlugin` to stop the proxy and disable the system proxy on clean exit. `CrashGuard` (signal handler + sentinel file) handles unclean exits on relaunch.
+### Debugging:
+
+```bash
+# Log in tempo reale
+log stream --predicate 'subsystem == "com.roxproxy"'
+
+# Log degli ultimi 5 minuti
+log show --predicate 'subsystem == "com.roxproxy"' --last 5m
+
+# Filtra per categoria
+log show --predicate 'subsystem == "com.roxproxy" AND category == "tls"'
+
+# Livello di dettaglio
+log show --predicate 'subsystem == "com.roxproxy"' --info --debug
+```
+
+### Code Style:
+
+- **Swift**: Segui Apple Swift API Design Guidelines
+- **Dart**: Segui Flutter style guide
+- **Naming**: `camelCase` per variabili, `PascalCase` per classi
+- **Logging**: Usa **sempre** `ProxyLogger.category.level("messaggio")`
+- **Error handling**: Logga **sempre** gli errori con `.error`
+
+### Dipendenze:
+
+**Regole generali:**
+- Evitare nuove dipendenze esterne se esiste una soluzione semplice
+- Preferire implementazioni custom per funzionalita banali (UUID, path, ecc.)
+- Per la sicurezza (certificati, TLS), usare librerie Apple ufficiali
+
+**Dipendenze attuali approvate:**
+- **Flutter**: `flutter_riverpod`, `riverpod_annotation` (fase 2: sostituire con Provider)
+- **Swift**: `swift-nio`, `swift-nio-ssl`, `swift-certificates`, `swift-asn1`, `swift-crypto`
+
+## 🔄 Refactoring Checklist
+
+Prima di fare refactoring:
+- [ ] Tutti i test passano (`swift test` + `flutter test integration_test/`)
+- [ ] Nuove dipendenze sono strettamente necessarie
+- [ ] Il codice e piu semplice, non piu complesso
+- [ ] La documentazione e aggiornata

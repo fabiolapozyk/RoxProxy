@@ -1,4 +1,4 @@
-import 'package:uuid/uuid.dart';
+import '../utils/uuid.dart';
 
 class DomainRule {
   final String id;
@@ -9,7 +9,7 @@ class DomainRule {
     String? id,
     required this.domain,
     this.isEnabled = true,
-  }) : id = id ?? const Uuid().v4();
+  }) : id = id ?? UUID.v4();
 
   bool matches(String host) {
     if (!isEnabled) return false;
