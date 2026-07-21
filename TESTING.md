@@ -213,6 +213,34 @@ testWidgets('Feature X works correctly', (tester) async {
 
 ## 🛠️ Test Utilities
 
+### ProxyMetrics (Thread-Safe Monitoring)
+
+`ProxyMetrics.shared` fornisce accesso alle metriche del proxy per debugging e testing:
+
+```swift
+// Accesso alle metriche
+let metrics = ProxyMetrics.shared
+
+// Contatori correnti
+let requests = metrics.requestCount
+let errors = metrics.errorCount
+let bytesIn = metrics.bytesReceived
+let bytesOut = metrics.bytesSent
+
+// Reset metriche (utile per test isolati)
+metrics.reset()
+
+// Uptime
+let uptime = metrics.uptime // TimeInterval in secondi
+
+// Rappresentazione JSON (usata da /stats endpoint)
+let json = metrics.toJSON()
+// Restituisce: ["requests": Int, "errors": Int, "bytes_received": Int, ...]
+
+// Rappresentazione pretty JSON
+let prettyJson = metrics.toPrettyJSON()
+```
+
 ### TestHarness (Swift)
 
 Gestisce automaticamente:
@@ -259,6 +287,102 @@ Tutti i componenti SwiftNIO sono mockati:
 | `MockEventLoop` | Simula event loop |
 | `MockProxySessionStore` | Storage thread-safe per test |
 | `MockSettingsStore` | Gestione settings per test |
+
+## 📊 Testing Tools & Endpoints
+
+### Health Check Endpoint
+
+Il proxy espone un endpoint `/health` per verificare programmaticamente che il proxy sia in esecuzione:
+
+```bash
+# Verifica che il proxy sia attivo
+curl http://127.0.0.1:8080/health
+# Response: {"status":"running","timestamp":"2026-07-21T21:00:00Z"}
+```
+
+**Utilizzo nei test:**
+```swift
+@Test func proxyStartsAndRespondsToHealthCheck() async throws {
+    let harness = try TestHarness()
+    try await harness.start()
+    defer { try? await harness.stop() }
+    
+    let (status, body) = try await harness.makeRequest(to: "http://127.0.0.1:8080/health")
+    #expect(status == 200)
+    #expect(body.contains("running"))
+}
+```
+
+### Statistics Endpoint
+
+Il proxy espone un endpoint `/stats` per recuperare le metriche in tempo reale:
+
+```bash
+# Ottieni statistiche proxy
+curl http://127.0.0.1:8080/stats
+# Response: {
+#   "requests": 10,
+#   "errors": 0,
+#   "bytes_received": 1024,
+#   "bytes_sent": 2048,
+#   "connect_requests": 2,
+#   "mitm_requests": 1,
+#   "tunnel_requests": 1,
+#   "uptime_seconds": "123.45",
+#   "status": "running"
+# }
+```
+
+**Utilizzo nei test:**
+```swift
+@Test func proxyTracksRequestCount() async throws {
+    let harness = try TestHarness()
+    try await harness.start()
+    defer { try? await harness.stop() }
+    
+    // Fai alcune richieste
+    _ = try await harness.makeRequest(to: "http://example.com")
+    _ = try await harness.makeRequest(to: "http://example.org")
+    
+    // Verifica contatore richieste
+    let (_, statsBody) = try await harness.makeRequest(to: "http://127.0.0.1:8080/stats")
+    let stats = try JSONDecoder().decode([String: Int].self, from: statsBody.data(using: .utf8)!)
+    #expect(stats["requests"] == 2)
+}
+```
+
+### ProxyMetrics (Thread-Safe Counters)
+
+`ProxyMetrics.shared` fornisce contatori thread-safe per il monitoraggio del proxy:
+
+| Metrica | Descrizione | Metodo di increment |
+|---------|-------------|-------------------|
+| `requestCount` | Totale richieste HTTP/HTTPS | `incrementRequests()` |
+| `errorCount` | Totale errori | `incrementErrors()` |
+| `bytesReceived` | Bytes ricevuti dai client | `addReceivedBytes(_:)` |
+| `bytesSent` | Bytes inviati ai client | `addSentBytes(_:)` |
+| `connectRequests` | Totale richieste CONNECT | `incrementConnectRequests()` |
+| `mitmRequests` | Totale richieste MITM | `incrementMITMRequests()` |
+| `tunnelRequests` | Totale richieste Tunnel | `incrementTunnelRequests()` |
+| `uptime` | Tempo di attività | `setStartTime(_:)` |
+
+**Esempio di test:**
+```swift
+@Test func metricsResetOnProxyStart() async throws {
+    let harness = try TestHarness()
+    
+    // Prima dello start, i contatori dovrebbero essere 0 (o reset)
+    let metrics = ProxyMetrics.shared
+    metrics.reset()
+    
+    try await harness.start()
+    defer { try? await harness.stop() }
+    
+    #expect(metrics.requestCount == 0)
+    #expect(metrics.errorCount == 0)
+    #expect(metrics.uptime > 0)
+}
+```
 
 ## 🔍 Debugging Test
 
@@ -340,6 +464,8 @@ open coverage/html/index.html
 - [ ] Nuovi test aggiunti per nuova funzionalita
 - [ ] Test aggiornati per bugfix
 - [ ] Log aggiunti per debugging (os_log)
+- [ ] Metriche aggiornate (ProxyMetrics) se applicabile
+- [ ] Endpoint /health e /stats testati
 - [ ] Documentazione aggiornata (MISTRAL.md, TESTING.md, README.md)
 
 ## 🚨 Common Pitfalls

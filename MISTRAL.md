@@ -32,6 +32,15 @@ log stream --predicate 'subsystem == "com.roxproxy"'
 2. **Sicurezza prima**: Non compromettere la sicurezza per semplificare
 3. **Separazione chiara**: UI (Flutter) ↔ Business Logic (Swift)
 4. **Os_log per tutto**: Logging nativo macOS, visibile in Console.app
+5. **Monitoraggio integrato**: Endpoint `/health` e `/stats` per health check e metriche
+
+**Testing & Debugging Tools:**
+- **Health Check**: `GET /health` - Verifica stato proxy
+- **Statistics**: `GET /stats` - Metriche in tempo reale
+- **os_log**: Tutte le operazioni vengono loggate con `ProxyLogger`
+- **ProxyMetrics**: Contatori thread-safe per request, errori, bytes, uptime
+
+**Project Layout:**
 
 **Project Layout:**
 ```
@@ -115,6 +124,18 @@ log show --predicate 'subsystem == "com.roxproxy" AND category == "tls"'
 
 # Livello di dettaglio
 log show --predicate 'subsystem == "com.roxproxy"' --info --debug
+
+# Health check (verifica proxy in esecuzione)
+curl http://127.0.0.1:8080/health
+
+# Statistiche proxy (metriche in tempo reale)
+curl http://127.0.0.1:8080/stats
+
+# Test tramite proxy (esempio HTTP)
+curl -x http://127.0.0.1:8080 http://example.com
+
+# Test HTTPS tramite proxy (richiede CA installato)
+curl -x http://127.0.0.1:8080 --cacert /path/to/ca.crt https://example.com
 ```
 
 ### Code Style:
