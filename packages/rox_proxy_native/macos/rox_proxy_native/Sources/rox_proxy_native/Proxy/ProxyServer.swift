@@ -50,6 +50,10 @@ final class ProxyServer {
         let group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
         self.group = group
 
+        // Initialize metrics
+        ProxyMetrics.shared.reset()
+        ProxyMetrics.shared.setStartTime(Date())
+
         let store         = self.store
         let ca            = self.certificateAuthority
         let certCache     = self.domainCertCache
