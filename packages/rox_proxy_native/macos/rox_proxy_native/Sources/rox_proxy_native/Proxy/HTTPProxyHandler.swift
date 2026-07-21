@@ -112,6 +112,23 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
 
         let target = Self.parseTarget(uri: head.uri, headers: head.headers)
         ProxyLogger.http.debug("Request target: %{public}@:%d", target.host, target.port)
+        
+        // Intercept internal endpoints
+        let path = URL(string: head.uri)?.path.lowercased() ?? head.uri.lowercased()
+        
+        // Health check endpoint
+        if path == "/health" && head.method == .GET {
+            ProxyLogger.http.debug("Serving health check")
+            serveHealthCheck(context: context)
+            return
+        }
+        
+        // Stats endpoint
+        if path == "/stats" && head.method == .GET {
+            ProxyLogger.http.debug("Serving stats")
+            serveStats(context: context)
+            return
+        }
 
         // Intercept CA certificate download.
         // Any device that has this proxy configured can visit http://cert.roxproxy/
@@ -122,9 +139,17 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
             return
         }
 
+        // Increment request counter for non-internal requests
+        ProxyMetrics.shared.incrementRequests()
+
         // Pause reads while we're waiting for the upstream connection
         _ = context.channel.setOption(ChannelOptions.autoRead, value: false)
         let (bodyContent, bodySize) = RequestCapture.build(from: bodyParts)
+        
+        // Track bytes received
+        if bodySize > 0 {
+            ProxyMetrics.shared.addReceivedBytes(Int64(bodySize))
+        }
 
         var requestHeaders: [(name: String, value: String)] = []
         for (name, value) in head.headers { requestHeaders.append((name: name, value: value)) }
@@ -186,7 +211,8 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
 
                 case .failure(let error):
                     ProxyLogger.error.error("Upstream connection failed to %{public}@:%d: %@", target.host, target.port, error.localizedDescription)
-                    exchange.state   = .failed(friendlyConnectionError(error, host: target.host))
+                    ProxyMetrics.shared.incrementErrors()
+                    exchange.state   = CapturedExchange.ExchangeState.failed(friendlyConnectionError(error, host: target.host))
                     exchange.endTime = Date()
                     Task { @MainActor in store.update(exchange) }
                     self.sendResponse(context: context, status: .badGateway)
@@ -200,6 +226,9 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
     private func handleCONNECT(context: ChannelHandlerContext, head: HTTPRequestHead) {
         let target = Self.parseCONNECTTarget(authority: head.uri)
         ProxyLogger.http.debug("HTTPS CONNECT to %{public}@:%d", target.host, target.port)
+        
+        // Increment CONNECT request counter
+        ProxyMetrics.shared.incrementConnectRequests()
 
         // Decide: MITM (TLS interception) or blind tunnel
         let shouldMITM = httpsInterceptionEnabled
@@ -208,9 +237,11 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
 
         if shouldMITM {
             ProxyLogger.tls.info("MITM decryption enabled for %{public}@", target.host)
+            ProxyMetrics.shared.incrementMITMRequests()
             establishMITM(context: context, head: head, host: target.host, port: target.port)
         } else {
             ProxyLogger.tls.debug("Blind tunnel for %{public}@ (no MITM rule)", target.host)
+            ProxyMetrics.shared.incrementTunnelRequests()
             connectAndTunnel(context: context, head: head, host: target.host, port: target.port)
         }
     }
@@ -251,8 +282,9 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
                     self.establishTunnel(context: context, upstreamChannel: upstreamChannel, exchange: exchange, store: store)
                 case .failure(let error):
                     ProxyLogger.error.error("Tunnel connection failed to %{public}@:%d: %@", host, port, error.localizedDescription)
+                    ProxyMetrics.shared.incrementErrors()
                     var failed = exchange
-                    failed.state = .failed(friendlyConnectionError(error, host: host))
+                    failed.state = CapturedExchange.ExchangeState.failed(friendlyConnectionError(error, host: host))
                     failed.endTime = Date()
                     Task { @MainActor in store.update(failed) }
                     self.sendResponse(context: context, status: .badGateway)
@@ -289,7 +321,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
                     upstreamChannel.close(promise: nil)
                     context.close(promise: nil)
                     var failed = exchange
-                    failed.state   = .failed("Tunnel setup failed")
+                    failed.state   = CapturedExchange.ExchangeState.failed("Tunnel setup failed")
                     failed.endTime = Date()
                     Task { @MainActor in store.update(failed) }
                 }
@@ -362,6 +394,78 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
                     context.close(promise: nil)
                 }
             }
+    }
+
+    // MARK: - Health Check Endpoint
+
+    /// Serves a simple health check response at `/health`.
+    /// Returns 200 OK with JSON indicating the proxy is running.
+    private func serveHealthCheck(context: ChannelHandlerContext) {
+        ProxyLogger.http.debug("Health check: proxy is running")
+        
+        let responseJSON = [
+            "status": "running",
+            "timestamp": ISO8601DateFormatter().string(from: Date())
+        ]
+        
+        do {
+            let jsonData = try JSONSerialization.data(withJSONObject: responseJSON, options: [.prettyPrinted])
+            let jsonString = String(data: jsonData, encoding: .utf8) ?? "{\"status\":\"running\"}"
+            
+            var headers = HTTPHeaders()
+            headers.add(name: "Content-Type", value: "application/json")
+            headers.add(name: "Content-Length", value: "Mon01Jan197000:00:00+0000")
+            headers.add(name: "Connection", value: "close")
+            
+            let head = HTTPResponseHead(version: .http1_1, status: .ok, headers: headers)
+            
+            var buffer = context.channel.allocator.buffer(capacity: jsonString.utf8.count)
+            buffer.writeString(jsonString)
+            
+            context.write(wrapOutboundOut(.head(head)), promise: nil)
+            context.write(wrapOutboundOut(.body(.byteBuffer(buffer))), promise: nil)
+            context.writeAndFlush(wrapOutboundOut(.end(nil)), promise: nil)
+        } catch {
+            ProxyLogger.error.error("Failed to serialize health check response: %@", error.localizedDescription)
+            sendResponse(context: context, status: .internalServerError)
+        }
+        
+        state = .idle
+    }
+
+    // MARK: - Stats Endpoint
+
+    /// Serves proxy statistics at `/stats`.
+    /// Returns JSON with request counts, error counts, bytes transferred, and uptime.
+    private func serveStats(context: ChannelHandlerContext) {
+        ProxyLogger.http.debug("Serving proxy stats")
+        
+        let metrics = ProxyMetrics.shared
+        let responseJSON = metrics.toJSON()
+        
+        do {
+            let jsonData = try JSONSerialization.data(withJSONObject: responseJSON, options: [.prettyPrinted, .sortedKeys])
+            let jsonString = String(data: jsonData, encoding: .utf8) ?? "{}"
+            
+            var headers = HTTPHeaders()
+            headers.add(name: "Content-Type", value: "application/json")
+            headers.add(name: "Content-Length", value: "Mon01Jan197000:00:00+0000")
+            headers.add(name: "Connection", value: "close")
+            
+            let head = HTTPResponseHead(version: .http1_1, status: .ok, headers: headers)
+            
+            var buffer = context.channel.allocator.buffer(capacity: jsonString.utf8.count)
+            buffer.writeString(jsonString)
+            
+            context.write(wrapOutboundOut(.head(head)), promise: nil)
+            context.write(wrapOutboundOut(.body(.byteBuffer(buffer))), promise: nil)
+            context.writeAndFlush(wrapOutboundOut(.end(nil)), promise: nil)
+        } catch {
+            ProxyLogger.error.error("Failed to serialize stats response: %@", error.localizedDescription)
+            sendResponse(context: context, status: .internalServerError)
+        }
+        
+        state = .idle
     }
 
     // MARK: - CA certificate download endpoint

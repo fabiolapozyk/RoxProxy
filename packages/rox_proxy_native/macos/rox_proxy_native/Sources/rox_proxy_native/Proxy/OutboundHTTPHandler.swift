@@ -60,6 +60,8 @@ final class OutboundHTTPHandler: ChannelInboundHandler {
 
         case .body(let buffer):
             responseCapture.append(buffer)
+            // Track bytes sent
+            ProxyMetrics.shared.addSentBytes(Int64(buffer.readableBytes))
             // Forward body chunk to client (read before capture consumes nothing — readableBytesView is non-consuming)
             inboundContext.write(
                 NIOAny(HTTPServerResponsePart.body(.byteBuffer(buffer))),
@@ -83,8 +85,10 @@ final class OutboundHTTPHandler: ChannelInboundHandler {
 
     func errorCaught(context: ChannelHandlerContext, error: Error) {
         ProxyLogger.error.error("Upstream error: %@", error.localizedDescription)
+        // Track error
+        ProxyMetrics.shared.incrementErrors()
         if exchange.state == .inProgress {
-            exchange.state   = .failed(error.localizedDescription)
+            exchange.state   = CapturedExchange.ExchangeState.failed(error.localizedDescription)
             exchange.endTime = Date()
             let snapshot = exchange
             let store    = self.store

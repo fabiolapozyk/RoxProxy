@@ -25,10 +25,24 @@ struct CategoryLogger {
         self.log = log
     }
     
+    /// Returns the appropriate log type based on build configuration.
+    /// In release builds, uses .default for .info and .debug to ensure persistence.
+    private func logType(_ type: OSLogType) -> OSLogType {
+        #if DEBUG
+        return type
+        #else
+        // In release builds, map debug and info to default for persistence
+        if type == .debug || type == .info {
+            return .default
+        }
+        return type
+        #endif
+    }
+    
     /// Log a debug message
     func debug(_ message: StaticString, _ args: CVarArg..., file: StaticString = #file, line: Int = #line) {
         if #available(macOS 11.0, *) {
-            os_log(message, log: log, type: .debug, args)
+            os_log(message, log: log, type: logType(.debug), args)
         } else {
             print(String(format: message.description, arguments: args))
         }
@@ -37,7 +51,7 @@ struct CategoryLogger {
     /// Log an info message
     func info(_ message: StaticString, _ args: CVarArg..., file: StaticString = #file, line: Int = #line) {
         if #available(macOS 11.0, *) {
-            os_log(message, log: log, type: .info, args)
+            os_log(message, log: log, type: logType(.info), args)
         } else {
             print(String(format: message.description, arguments: args))
         }
