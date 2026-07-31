@@ -378,17 +378,20 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
             host: host, port: port, store: store
         )
 
-        // Tell the client the tunnel is ready, then swap in TLS on this channel
-        sendConnectEstablished(context: context)
+        // Send 200 OK FIRST while HTTP encoder is still in pipeline
+        self.sendConnectEstablished(context: context)
 
+        // THEN reconfigure pipeline
+        _ = context.channel.setOption(ChannelOptions.autoRead, value: false)
         context.pipeline.removeHandler(name: "HTTPProxyHandler")
             .flatMap { context.pipeline.removeHandler(name: "HTTPResponseEncoder") }
             .flatMap { context.pipeline.removeHandler(name: "HTTPRequestDecoder") }
-            .flatMap { context.pipeline.addHandler(sslHandler,   name: "MITMSSLServerHandler") }
+            .flatMap { context.pipeline.addHandler(sslHandler, name: "MITMSSLServerHandler") }
             .flatMap { context.pipeline.addHandler(setupHandler, name: "MITMSetupHandler") }
             .whenComplete { result in
                 switch result {
                 case .success:
+                    // Re-enable autoRead so NIOSSLServerHandler can read TLS data
                     _ = context.channel.setOption(ChannelOptions.autoRead, value: true)
                 case .failure:
                     context.close(promise: nil)

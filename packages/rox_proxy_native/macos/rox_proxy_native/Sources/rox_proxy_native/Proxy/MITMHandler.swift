@@ -33,7 +33,7 @@ final class MITMSetupHandler: ChannelInboundHandler, RemovableChannelHandler {
     }
 
     func errorCaught(context: ChannelHandlerContext, error: Error) {
-        ProxyLogger.tls.error("MITM setup handler error: %{public}@", error.localizedDescription)
+        ProxyLogger.tls.error("MITM setup handler error: %{public}@", "\(error)")
         context.close(promise: nil)
     }
 
@@ -106,6 +106,7 @@ final class MITMHandler: ChannelInboundHandler {
         let part = unwrapInboundIn(data)
         switch part {
         case .head(let head):
+            ProxyLogger.http.debug("MITMHandler: received .head method=%{public}@ path=%{public}@", head.method.rawValue, head.uri)
             guard case .idle = state else { 
                 ProxyLogger.http.error("MITMHandler: pipelining rejected")
                 context.close(promise: nil); return 
@@ -113,10 +114,12 @@ final class MITMHandler: ChannelInboundHandler {
             ProxyLogger.http.debug("MITM decrypted request: %{public}@ %{public}@", head.method.rawValue, head.uri)
             state = .collecting(head: head, bodyParts: [])
         case .body(let buffer):
+            ProxyLogger.http.debug("MITMHandler: received .body with %{public}@ bytes", buffer.readableBytes)
             guard case .collecting(let head, var parts) = state else { return }
             parts.append(buffer)
             state = .collecting(head: head, bodyParts: parts)
         case .end:
+            ProxyLogger.http.debug("MITMHandler: received .end - calling handleEnd")
             handleEnd(context: context)
         }
     }
@@ -134,10 +137,15 @@ final class MITMHandler: ChannelInboundHandler {
     // MARK: - Request dispatch
 
     private func handleEnd(context: ChannelHandlerContext) {
-        guard case .collecting(let head, let bodyParts) = state else { return }
+        ProxyLogger.http.debug("MITMHandler: handleEnd called, state=%{public}@", "\(state)")
+        guard case .collecting(let head, let bodyParts) = state else {
+            ProxyLogger.http.error("MITMHandler: handleEnd called but state is not .collecting")
+            return 
+        }
+        ProxyLogger.http.debug("MITMHandler: handleEnd processing request with %{public}@ body parts", bodyParts.count)
         state = .forwarding
 
-        _ = context.channel.setOption(ChannelOptions.autoRead, value: false)
+        // autoRead already managed in establishMITM, no need to disable here
 
         let (bodyContent, bodySize) = RequestCapture.build(from: bodyParts)
         let requestHeaders: [(name: String, value: String)] = head.headers.map {
@@ -221,9 +229,12 @@ final class MITMHandler: ChannelInboundHandler {
                 }
             }
             .connect(host: host, port: port)
-            .whenComplete { result in
+            .whenComplete { [weak self] result in
+                guard let self = self else { return }
+                ProxyLogger.http.debug("MITMHandler: upstream connection result for %{public}@:%d", self.host, self.port)
                 switch result {
                 case .success(let upstreamChannel):
+                    ProxyLogger.http.debug("MITMHandler: upstream connection established to %{public}@:%d", self.host, self.port)
                     upstreamChannel.write(NIOAny(HTTPClientRequestPart.head(outHead)), promise: nil)
                     for buf in bodyParts {
                         upstreamChannel.write(
@@ -235,6 +246,7 @@ final class MITMHandler: ChannelInboundHandler {
                     )
 
                 case .failure(let error):
+                    ProxyLogger.http.error("MITMHandler: upstream connection failed to %{public}@:%d: %{public}@", self.host, self.port, "\(error)")
                     var failed = exchange
                     failed.state   = .failed(friendlyConnectionError(error, host: host))
                     failed.endTime = Date()
