@@ -31,7 +31,7 @@ final class ExchangeStreamHandler: NSObject, FlutterStreamHandler {
         exchange: CapturedExchange,
         bodyRefs: (request: String?, response: String?)
     ) {
-        ProxyLogger.http.debug("Sending exchange event to Flutter: type=%@, url=%@", type, exchange.url)
+        ProxyLogger.http.debug("Sending exchange event to Flutter: type=%{public}@, url=%{public}@", type, exchange.url)
         guard let sink = eventSink else {
             ProxyLogger.http.error("Exchange stream handler: eventSink is nil, cannot send event")
             return 

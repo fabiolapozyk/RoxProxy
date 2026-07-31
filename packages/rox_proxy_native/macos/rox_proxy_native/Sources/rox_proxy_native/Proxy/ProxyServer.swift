@@ -97,8 +97,8 @@ final class ProxyServer {
             channel = try await bootstrap.bind(host: "0.0.0.0", port: port).get()
             ProxyLogger.proxy.info("Proxy server bound to 0.0.0.0:%d", port)
         } catch {
-            ProxyLogger.proxy.error("Failed to bind to port %d: %@", port, error.localizedDescription)
-            ProxyLogger.error.error("Bind failed on port %d: %@", port, error.localizedDescription)
+            ProxyLogger.proxy.error("Failed to bind to port %d: %{public}@", port, error.localizedDescription)
+            ProxyLogger.error.error("Bind failed on port %d: %{public}@", port, error.localizedDescription)
             try? await group.shutdownGracefully()
             self.group = nil
             throw ProxyError.bindFailed(port: port, underlying: error)
@@ -123,7 +123,7 @@ final class ProxyServer {
         headers: [String: String],
         body: Data?
     ) async throws -> String {
-        ProxyLogger.replay.info("Replaying request: %@ %@", method, url.absoluteString)
+        ProxyLogger.replay.info("Replaying request: %{public}@ %{public}@", method, url.absoluteString)
         // For now, implement a simple HTTP client using URLSession
         // This is a temporary solution until we implement proper SwiftNIO client
         

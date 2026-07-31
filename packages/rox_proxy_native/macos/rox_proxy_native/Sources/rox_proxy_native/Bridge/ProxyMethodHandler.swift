@@ -36,7 +36,7 @@ final class ProxyMethodHandler: NSObject {
 
     @MainActor
     func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-        ProxyLogger.proxy.debug("Method call: %@", call.method)
+        ProxyLogger.proxy.debug("Method call: %{public}@", call.method)
         switch call.method {
         case "startProxy":           startProxy(call, result: result)
         case "stopProxy":            stopProxy(result: result)
@@ -82,8 +82,10 @@ final class ProxyMethodHandler: NSObject {
         let httpsInterceptionEnabled = args["httpsInterceptionEnabled"] as? Bool ?? true
         let setSystemProxy = args["setSystemProxy"] as? Bool ?? true
         
-        ProxyLogger.proxy.debug("Proxy configuration: port=%d, timeout=%ds, https=%s, systemProxy=%s", 
-                                port, timeout, httpsInterceptionEnabled ? "yes" : "no", setSystemProxy ? "yes" : "no")
+        ProxyLogger.proxy.debug(
+            "%{public}@",
+            "Proxy configuration: port=\(port), timeout=\(timeout), https=\(httpsInterceptionEnabled ? "yes" : "no"), systemProxy=\(setSystemProxy ? "yes" : "no")"
+        )
 
         let store = BridgeSessionStore(streamHandler: streamHandler, bodyStore: bodyStore)
         let server = ProxyServer(
@@ -108,7 +110,7 @@ final class ProxyMethodHandler: NSObject {
                         try spm.enableProxy(port: port)
                         self.systemProxyManager = spm
                     } catch {
-                        ProxyLogger.systemProxy.error("Failed to enable system proxy: %@", error.localizedDescription)
+                        ProxyLogger.systemProxy.error("Failed to enable system proxy: %{public}@", error.localizedDescription)
                         // Non-fatal: proxy works even if system setting fails
                     }
                 }
@@ -116,7 +118,7 @@ final class ProxyMethodHandler: NSObject {
                 self.crashGuard?.writeSentinel(port: port)
                 result(["success": true, "port": port])
             } catch {
-                ProxyLogger.proxy.error("Failed to start proxy: %@", error.localizedDescription)
+                ProxyLogger.proxy.error("Failed to start proxy: %{public}@", error.localizedDescription)
                 self.proxyServer = nil
                 result(FlutterError(
                     code: "START_FAILED",
@@ -151,7 +153,7 @@ final class ProxyMethodHandler: NSObject {
                 try spm.enableProxy(port: port)
                 self.systemProxyManager = spm
             } catch {
-                ProxyLogger.systemProxy.error("Failed to enable system proxy: %@", error.localizedDescription)
+                ProxyLogger.systemProxy.error("Failed to enable system proxy: %{public}@", error.localizedDescription)
                 // Non-fatal
             }
         } else {
@@ -184,14 +186,14 @@ final class ProxyMethodHandler: NSObject {
                 try await server?.stop()
                 ProxyLogger.proxy.info("Proxy stopped successfully")
             } catch {
-                ProxyLogger.proxy.error("Error stopping proxy: %@", error.localizedDescription)
+                ProxyLogger.proxy.error("Error stopping proxy: %{public}@", error.localizedDescription)
             }
         }
     }
 
     private func getProxyState(result: FlutterResult) {
         let state = proxyServer != nil ? "running" : "stopped"
-        ProxyLogger.proxy.debug("Getting proxy state: %@", state)
+        ProxyLogger.proxy.debug("Getting proxy state: %{public}@", state)
         result(["state": state])
     }
 
@@ -211,7 +213,7 @@ final class ProxyMethodHandler: NSObject {
                 ProxyLogger.keychain.info("CA certificate installed successfully")
                 result(["trusted": true])
             } catch {
-                ProxyLogger.keychain.error("Failed to install CA certificate: %@", error.localizedDescription)
+                ProxyLogger.keychain.error("Failed to install CA certificate: %{public}@", error.localizedDescription)
                 result(FlutterError(
                     code: "INSTALL_FAILED",
                     message: error.localizedDescription,
@@ -229,7 +231,7 @@ final class ProxyMethodHandler: NSObject {
             return
         }
         let trusted = keychainInstaller.isCAInstalled(derData: ca.caCertificateDER())
-        ProxyLogger.keychain.debug("CA trusted: %s", trusted ? "yes" : "no")
+        ProxyLogger.keychain.debug("CA trusted: %{public}@", trusted ? "yes" : "no")
         result(["trusted": trusted])
     }
 
@@ -242,7 +244,7 @@ final class ProxyMethodHandler: NSObject {
         } else {
             trusted = false
         }
-        ProxyLogger.keychain.debug("CA status: initialized=%s, trusted=%s", initialized ? "yes" : "no", trusted ? "yes" : "no")
+        ProxyLogger.keychain.debug("CA status: initialized=%{public}@, trusted=%{public}@", initialized ? "yes" : "no", trusted ? "yes" : "no")
         result(["initialized": initialized, "trusted": trusted])
     }
 
@@ -260,7 +262,7 @@ final class ProxyMethodHandler: NSObject {
             ProxyLogger.proxy.debug("Body fetched successfully, size: %d bytes", data.count)
             result(FlutterStandardTypedData(bytes: data))
         } else {
-            ProxyLogger.proxy.error("Body not found for ref: %@", ref)
+            ProxyLogger.proxy.error("Body not found for ref: %{public}@", ref)
             result(nil)
         }
     }
@@ -292,7 +294,7 @@ final class ProxyMethodHandler: NSObject {
             return
         }
         let data = typedData.data
-        ProxyLogger.proxy.debug("Decompressing %d bytes with encoding: %@", data.count, encoding)
+        ProxyLogger.proxy.debug("Decompressing %d bytes with encoding: %{public}@", data.count, encoding)
         if let decompressed = GzipDecompressor.decode(data: data, contentEncoding: encoding) {
             ProxyLogger.proxy.debug("Decompression successful: %d -> %d bytes", data.count, decompressed.count)
             result(FlutterStandardTypedData(bytes: decompressed))
@@ -322,7 +324,7 @@ final class ProxyMethodHandler: NSObject {
             return
         }
 
-        ProxyLogger.replay.debug("Replay request: %@ %@", method, urlString)
+        ProxyLogger.replay.debug("Replay request: %{public}@ %{public}@", method, urlString)
         let httpHeaders = headers.reduce(into: [String: String]()) { dict, header in
             if let name = header["name"] as? String, let value = header["value"] as? String {
                 dict[name] = value
@@ -340,10 +342,10 @@ final class ProxyMethodHandler: NSObject {
                     headers: httpHeaders,
                     body: bodyData
                 )
-                ProxyLogger.replay.info("Replay request completed, exchangeId: %@", exchangeId)
+                ProxyLogger.replay.info("Replay request completed, exchangeId: %{public}@", exchangeId)
                 result(["exchangeId": exchangeId])
             } catch {
-                ProxyLogger.replay.error("Replay request failed: %@", error.localizedDescription)
+                ProxyLogger.replay.error("Replay request failed: %{public}@", error.localizedDescription)
                 result(FlutterError(
                     code: "REPLAY_FAILED",
                     message: error.localizedDescription,

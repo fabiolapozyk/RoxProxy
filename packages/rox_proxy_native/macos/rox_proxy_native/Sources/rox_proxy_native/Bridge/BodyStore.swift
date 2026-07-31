@@ -12,10 +12,10 @@ final class BodyStore: @unchecked Sendable {
     /// Stores the request and response bodies of an exchange (if any)
     /// and returns the reference UUIDs assigned to each.
     func store(exchange: CapturedExchange) -> (request: String?, response: String?) {
-        ProxyLogger.http.debug("BodyStore: storing bodies for exchange %@ %@", exchange.method, exchange.url)
+        ProxyLogger.http.debug("BodyStore: storing bodies for exchange %{public}@ %{public}@", exchange.method, exchange.url)
         let reqRef = storeBodyContent(exchange.requestBody)
         let resRef = storeBodyContent(exchange.responseBody)
-        ProxyLogger.http.debug("BodyStore: requestRef=%@, responseRef=%@", reqRef ?? "nil", resRef ?? "nil")
+        ProxyLogger.http.debug("BodyStore: requestRef=%{public}@, responseRef=%{public}@", reqRef ?? "nil", resRef ?? "nil")
         return (request: reqRef, response: resRef)
     }
 
@@ -23,7 +23,7 @@ final class BodyStore: @unchecked Sendable {
     private func storeBodyContent(_ content: BodyContent?) -> String? {
         guard let content, let data = content.data, !data.isEmpty else { return nil }
         let ref = UUID().uuidString
-        ProxyLogger.http.debug("BodyStore: storing %d bytes with ref %@", data.count, ref)
+        ProxyLogger.http.debug("BodyStore: storing %d bytes with ref %{public}@", data.count, ref)
         lock.withLock { store[ref] = data }
         return ref
     }
@@ -31,13 +31,13 @@ final class BodyStore: @unchecked Sendable {
     /// Retrieves body bytes by reference. Returns nil if not found.
     func fetch(ref: String) -> Data? {
         let data = lock.withLock { store[ref] }
-        ProxyLogger.http.debug("BodyStore: fetching body for ref %@, found=%s", ref, data != nil ? "yes" : "no")
+        ProxyLogger.http.debug("BodyStore: fetching body for ref %{public}@, found=%{public}@", ref, data != nil ? "yes" : "no")
         return data
     }
 
     /// Releases a single body reference.
     func release(ref: String) {
-        ProxyLogger.http.debug("BodyStore: releasing body for ref %@", ref)
+        ProxyLogger.http.debug("BodyStore: releasing body for ref %{public}@", ref)
         lock.withLock { store.removeValue(forKey: ref) }
     }
 

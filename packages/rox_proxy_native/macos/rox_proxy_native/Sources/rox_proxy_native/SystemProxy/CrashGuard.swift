@@ -41,7 +41,7 @@ final class CrashGuard {
             return 
         }
 
-        ProxyLogger.crashGuard.error("Crash detected! Sentinel file found at %@", sentinelURL.path)
+        ProxyLogger.crashGuard.error("Crash detected! Sentinel file found at %{public}@", sentinelURL.path)
         // Attempt to restore proxy on all services (we don't know which were set)
         SystemProxyManager.forceDisableOnAllServices()
         clearSentinel()

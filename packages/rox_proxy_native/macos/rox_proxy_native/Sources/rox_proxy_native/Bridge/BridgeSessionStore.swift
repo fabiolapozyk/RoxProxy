@@ -18,7 +18,7 @@ final class BridgeSessionStore: @unchecked Sendable {
 
     @MainActor
     func append(_ exchange: CapturedExchange) {
-        ProxyLogger.http.debug("BridgeSessionStore: appending exchange %@ %@", exchange.method, exchange.url)
+        ProxyLogger.http.debug("BridgeSessionStore: appending exchange %{public}@ %{public}@", exchange.method, exchange.url)
         guard isRecording else { 
             ProxyLogger.http.debug("BridgeSessionStore: not recording, skipping append")
             return 
@@ -29,7 +29,7 @@ final class BridgeSessionStore: @unchecked Sendable {
 
     @MainActor
     func update(_ exchange: CapturedExchange) {
-        ProxyLogger.http.debug("BridgeSessionStore: updating exchange %@ %@", exchange.method, exchange.url)
+        ProxyLogger.http.debug("BridgeSessionStore: updating exchange %{public}@ %{public}@", exchange.method, exchange.url)
         let refs = bodyStore.store(exchange: exchange)
         streamHandler.send(type: "update", exchange: exchange, bodyRefs: refs)
     }

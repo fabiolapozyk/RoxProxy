@@ -56,7 +56,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
         let part = unwrapInboundIn(data)
         switch part {
         case .head(let head):
-            ProxyLogger.http.debug("Received request: %@ %@", head.method.rawValue, head.uri)
+            ProxyLogger.http.debug("Received request: %{public}@ %{public}@", head.method.rawValue, head.uri)
             handleHead(context: context, head: head)
         case .body(let buffer):
             handleBody(buffer: buffer)
@@ -71,7 +71,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
     }
 
     func errorCaught(context: ChannelHandlerContext, error: Error) {
-        ProxyLogger.error.error("Channel error: %@", error.localizedDescription)
+        ProxyLogger.error.error("Channel error: %{public}@", error.localizedDescription)
         context.close(promise: nil)
     }
 
@@ -87,12 +87,12 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
 
         if head.method == .CONNECT {
             // HTTPS tunnel — Step 6 / Step 7
-            ProxyLogger.http.debug("CONNECT request to %@", head.uri)
+            ProxyLogger.http.debug("CONNECT request to %{public}@", head.uri)
             handleCONNECT(context: context, head: head)
             return
         }
 
-        ProxyLogger.http.debug("HTTP request: %@ %@", head.method.rawValue, head.uri)
+        ProxyLogger.http.debug("HTTP request: %{public}@ %{public}@", head.method.rawValue, head.uri)
         state = .collecting(head: head, bodyParts: [])
     }
 
@@ -210,7 +210,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
                     upstreamChannel.writeAndFlush(NIOAny(HTTPClientRequestPart.end(nil)), promise: nil)
 
                 case .failure(let error):
-                    ProxyLogger.error.error("Upstream connection failed to %{public}@:%d: %@", target.host, target.port, error.localizedDescription)
+                    ProxyLogger.error.error("Upstream connection failed to %{public}@:%d: %{public}@", target.host, target.port, error.localizedDescription)
                     ProxyMetrics.shared.incrementErrors()
                     exchange.state   = CapturedExchange.ExchangeState.failed(friendlyConnectionError(error, host: target.host))
                     exchange.endTime = Date()
@@ -281,7 +281,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
                     ProxyLogger.http.debug("Tunnel established to %{public}@:%d", host, port)
                     self.establishTunnel(context: context, upstreamChannel: upstreamChannel, exchange: exchange, store: store)
                 case .failure(let error):
-                    ProxyLogger.error.error("Tunnel connection failed to %{public}@:%d: %@", host, port, error.localizedDescription)
+                    ProxyLogger.error.error("Tunnel connection failed to %{public}@:%d: %{public}@", host, port, error.localizedDescription)
                     ProxyMetrics.shared.incrementErrors()
                     var failed = exchange
                     failed.state = CapturedExchange.ExchangeState.failed(friendlyConnectionError(error, host: host))
@@ -352,7 +352,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
             (cert, key) = try cache.certificate(for: host)
             ProxyLogger.tls.debug("Domain certificate generated for %{public}@", host)
         } catch {
-            ProxyLogger.tls.error("Failed to generate domain certificate for %{public}@: %@", host, error.localizedDescription)
+            ProxyLogger.tls.error("Failed to generate domain certificate for %{public}@: %{public}@", host, error.localizedDescription)
             sendResponse(context: context, status: .badGateway)
             return
         }
@@ -367,7 +367,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
             sslContext = try NIOSSLContext(configuration: tlsConfig)
             ProxyLogger.tls.debug("TLS context created for MITM")
         } catch {
-            ProxyLogger.tls.error("Failed to create TLS context: %@", error.localizedDescription)
+            ProxyLogger.tls.error("Failed to create TLS context: %{public}@", error.localizedDescription)
             sendResponse(context: context, status: .internalServerError)
             return
         }
@@ -426,7 +426,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
             context.write(wrapOutboundOut(.body(.byteBuffer(buffer))), promise: nil)
             context.writeAndFlush(wrapOutboundOut(.end(nil)), promise: nil)
         } catch {
-            ProxyLogger.error.error("Failed to serialize health check response: %@", error.localizedDescription)
+            ProxyLogger.error.error("Failed to serialize health check response: %{public}@", error.localizedDescription)
             sendResponse(context: context, status: .internalServerError)
         }
         
@@ -461,7 +461,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
             context.write(wrapOutboundOut(.body(.byteBuffer(buffer))), promise: nil)
             context.writeAndFlush(wrapOutboundOut(.end(nil)), promise: nil)
         } catch {
-            ProxyLogger.error.error("Failed to serialize stats response: %@", error.localizedDescription)
+            ProxyLogger.error.error("Failed to serialize stats response: %{public}@", error.localizedDescription)
             sendResponse(context: context, status: .internalServerError)
         }
         

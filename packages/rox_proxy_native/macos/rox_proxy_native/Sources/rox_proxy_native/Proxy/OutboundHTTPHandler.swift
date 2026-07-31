@@ -45,7 +45,7 @@ final class OutboundHTTPHandler: ChannelInboundHandler {
             exchange.statusMessage = head.status.reasonPhrase
             exchange.responseHeaders = head.headers.map { (name: $0.name, value: $0.value) }
             
-            ProxyLogger.http.debug("Received upstream response: %d %@", head.status.code, head.status.reasonPhrase ?? "")
+            ProxyLogger.http.debug("Received upstream response: %d %{public}@", head.status.code, head.status.reasonPhrase ?? "")
 
             // Forward response head to client
             let responseHead = HTTPResponseHead(
@@ -84,7 +84,7 @@ final class OutboundHTTPHandler: ChannelInboundHandler {
     }
 
     func errorCaught(context: ChannelHandlerContext, error: Error) {
-        ProxyLogger.error.error("Upstream error: %@", error.localizedDescription)
+        ProxyLogger.error.error("Upstream error: %{public}@", error.localizedDescription)
         // Track error
         ProxyMetrics.shared.incrementErrors()
         if exchange.state == .inProgress {
@@ -108,7 +108,7 @@ final class OutboundHTTPHandler: ChannelInboundHandler {
         exchange.endTime      = Date()
         exchange.state        = .completed
         
-        ProxyLogger.http.debug("Exchange completed: %@ %@ -> %d", exchange.method, exchange.url, exchange.statusCode ?? 0)
+        ProxyLogger.http.debug("Exchange completed: %{public}@ %{public}@ -> %d", exchange.method, exchange.url, exchange.statusCode ?? 0)
 
         let snapshot = exchange
         let store    = self.store

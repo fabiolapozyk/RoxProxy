@@ -33,7 +33,7 @@ final class MITMSetupHandler: ChannelInboundHandler, RemovableChannelHandler {
     }
 
     func errorCaught(context: ChannelHandlerContext, error: Error) {
-        ProxyLogger.tls.error("MITM setup handler error: %@", error.localizedDescription)
+        ProxyLogger.tls.error("MITM setup handler error: %{public}@", error.localizedDescription)
         context.close(promise: nil)
     }
 
@@ -110,7 +110,7 @@ final class MITMHandler: ChannelInboundHandler {
                 ProxyLogger.http.error("MITMHandler: pipelining rejected")
                 context.close(promise: nil); return 
             }
-            ProxyLogger.http.debug("MITM decrypted request: %@ %@", head.method.rawValue, head.uri)
+            ProxyLogger.http.debug("MITM decrypted request: %{public}@ %{public}@", head.method.rawValue, head.uri)
             state = .collecting(head: head, bodyParts: [])
         case .body(let buffer):
             guard case .collecting(let head, var parts) = state else { return }
@@ -127,7 +127,7 @@ final class MITMHandler: ChannelInboundHandler {
     }
 
     func errorCaught(context: ChannelHandlerContext, error: Error) {
-        ProxyLogger.error.error("MITM handler error: %@", error.localizedDescription)
+        ProxyLogger.error.error("MITM handler error: %{public}@", error.localizedDescription)
         context.close(promise: nil)
     }
 
@@ -145,7 +145,7 @@ final class MITMHandler: ChannelInboundHandler {
         }
 
         let url = "https://\(host)\(head.uri)"
-        ProxyLogger.http.debug("MITM decrypted request end for %{public}@: %@ %@", host, head.method.rawValue, head.uri)
+        ProxyLogger.http.debug("MITM decrypted request end for %{public}@: %{public}@ %{public}@", host, head.method.rawValue, head.uri)
         var exchange = CapturedExchange(
             method: head.method.rawValue,
             url: url,
@@ -190,7 +190,7 @@ final class MITMHandler: ChannelInboundHandler {
             tlsConfig.certificateVerification = .none
             sslContext = try NIOSSLContext(configuration: tlsConfig)
         } catch {
-            ProxyLogger.tls.error("TLS setup failed: %@", error.localizedDescription)
+            ProxyLogger.tls.error("TLS setup failed: %{public}@", error.localizedDescription)
             exchange.state   = .failed("TLS setup: \(friendlyConnectionError(error, host: host))")
             exchange.endTime = Date()
             Task { @MainActor in store.update(exchange) }

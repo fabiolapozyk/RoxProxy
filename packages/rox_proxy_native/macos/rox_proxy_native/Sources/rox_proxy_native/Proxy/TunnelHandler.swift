@@ -27,7 +27,7 @@ final class TunnelHandler: ChannelDuplexHandler {
         let buf = unwrapInboundIn(data)
         ProxyLogger.http.debug("TunnelHandler: forwarding %d bytes to peer", buf.readableBytes)
         peer.writeAndFlush(NIOAny(buf)).whenFailure { error in
-            ProxyLogger.http.error("TunnelHandler: write to peer failed: %@", error.localizedDescription)
+            ProxyLogger.http.error("TunnelHandler: write to peer failed: %{public}@", error.localizedDescription)
             context.close(promise: nil)
         }
     }
@@ -45,7 +45,7 @@ final class TunnelHandler: ChannelDuplexHandler {
     }
 
     func errorCaught(context: ChannelHandlerContext, error: Error) {
-        ProxyLogger.http.error("TunnelHandler: error caught: %@", error.localizedDescription)
+        ProxyLogger.http.error("TunnelHandler: error caught: %{public}@", error.localizedDescription)
         peer?.close(promise: nil)
         context.close(promise: nil)
     }

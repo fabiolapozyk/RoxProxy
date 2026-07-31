@@ -23,7 +23,7 @@ final class SystemProxyManager {
             throw SystemProxyError.noActiveServices
         }
 
-        ProxyLogger.systemProxy.debug("Configuring proxy for services: %@", services.joined(separator: ", "))
+        ProxyLogger.systemProxy.debug("Configuring proxy for services: %{public}@", services.joined(separator: ", "))
         for service in services {
             Self.run("networksetup", ["-setwebproxy",             service, "127.0.0.1", "\(port)"])
             Self.run("networksetup", ["-setsecurewebproxy",       service, "127.0.0.1", "\(port)"])
@@ -72,7 +72,7 @@ final class SystemProxyManager {
             .dropFirst()                     // first line is a disclaimer header
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
-        ProxyLogger.systemProxy.debug("Discovered network services: %@", services.joined(separator: ", "))
+        ProxyLogger.systemProxy.debug("Discovered network services: %{public}@", services.joined(separator: ", "))
         return services
     }
 

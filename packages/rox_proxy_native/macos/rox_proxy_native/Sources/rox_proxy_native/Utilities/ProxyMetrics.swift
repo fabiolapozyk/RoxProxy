@@ -173,7 +173,7 @@ final class ProxyMetrics {
             let data = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
             return String(data: data, encoding: .utf8) ?? "{}"
         } catch {
-            ProxyLogger.error.error("Failed to serialize metrics to JSON: %@", error.localizedDescription)
+            ProxyLogger.error.error("Failed to serialize metrics to JSON: %{public}@", error.localizedDescription)
             return "{}"
         }
     }

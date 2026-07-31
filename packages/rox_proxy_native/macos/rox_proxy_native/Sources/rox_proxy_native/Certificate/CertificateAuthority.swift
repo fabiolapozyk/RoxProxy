@@ -55,11 +55,11 @@ final class CertificateAuthority: Sendable {
 
         // Ensure storage directory exists
         if !FileManager.default.fileExists(atPath: dir.path) {
-            ProxyLogger.certificate.debug("Creating storage directory at %@", dir.path)
+            ProxyLogger.certificate.debug("Creating storage directory at %{public}@", dir.path)
             do {
                 try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             } catch {
-                ProxyLogger.certificate.error("Failed to create storage directory: %@", error.localizedDescription)
+                ProxyLogger.certificate.error("Failed to create storage directory: %{public}@", error.localizedDescription)
                 throw CAError.storageDirCreationFailed
             }
         }
@@ -83,7 +83,7 @@ final class CertificateAuthority: Sendable {
     // MARK: - Load from disk
 
     private static func loadFromDisk(certURL: URL, keyURL: URL) throws -> CertificateAuthority {
-        ProxyLogger.certificate.debug("Loading CA certificate from %@", certURL.path)
+        ProxyLogger.certificate.debug("Loading CA certificate from %{public}@", certURL.path)
         let certDER = try Data(contentsOf: certURL)
         let keyPEM  = try String(contentsOf: keyURL, encoding: .utf8)
 
@@ -133,7 +133,7 @@ final class CertificateAuthority: Sendable {
             extensions: extensions,
             issuerPrivateKey: privateKey
         )
-        ProxyLogger.certificate.debug("CA certificate created with validity: %@ to %@", now.description, expiry.description)
+        ProxyLogger.certificate.debug("CA certificate created with validity: %{public}@ to %{public}@", now.description, expiry.description)
 
         // 6. Persist to disk
         ProxyLogger.certificate.debug("Persisting CA certificate and key to disk")

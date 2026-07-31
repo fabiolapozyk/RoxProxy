@@ -39,7 +39,7 @@ public class RoxProxyNativePlugin: NSObject, FlutterPlugin {
             certCache = DomainCertificateCache(ca: ca!)
             ProxyLogger.certificate.info("CA loaded successfully")
         } catch {
-            ProxyLogger.certificate.error("CA init failed: %@", error.localizedDescription)
+            ProxyLogger.certificate.error("CA init failed: %{public}@", error.localizedDescription)
             NSLog("RoxProxy: CA init failed: \(error)")
         }
 
@@ -77,7 +77,7 @@ public class RoxProxyNativePlugin: NSObject, FlutterPlugin {
     }
 
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-        ProxyLogger.proxy.debug("Handling method call: %@", call.method)
+        ProxyLogger.proxy.debug("Handling method call: %{public}@", call.method)
         Task { @MainActor in
             Self.methodHandler?.handle(call, result: result)
                 ?? result(FlutterMethodNotImplemented)

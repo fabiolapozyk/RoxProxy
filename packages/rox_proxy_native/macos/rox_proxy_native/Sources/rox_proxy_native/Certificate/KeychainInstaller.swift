@@ -51,7 +51,7 @@ final class KeychainInstaller {
         let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
         guard addStatus == errSecSuccess || addStatus == errSecDuplicateItem else {
             let msg = SecCopyErrorMessageString(addStatus, nil) as String? ?? "unknown"
-            ProxyLogger.keychain.error("Failed to add certificate to keychain: %@ (%d)", msg, addStatus)
+            ProxyLogger.keychain.error("Failed to add certificate to keychain: %{public}@ (%d)", msg, addStatus)
             throw KeychainError.addToKeychainFailed(addStatus, msg)
         }
 
@@ -66,7 +66,7 @@ final class KeychainInstaller {
         let trustStatus = SecTrustSettingsSetTrustSettings(secCert, .user, settings)
         guard trustStatus == errSecSuccess else {
             let msg = SecCopyErrorMessageString(trustStatus, nil) as String? ?? "unknown"
-            ProxyLogger.keychain.error("Failed to set trust settings: %@ (%d)", msg, trustStatus)
+            ProxyLogger.keychain.error("Failed to set trust settings: %{public}@ (%d)", msg, trustStatus)
             throw KeychainError.trustSettingsFailed(trustStatus, msg)
         }
         ProxyLogger.keychain.info("CA certificate installed and trusted successfully")
@@ -75,22 +75,27 @@ final class KeychainInstaller {
     /// Returns true if the CA cert has explicit trust settings in any domain
     /// (user, admin, or system).
     func isCAInstalled(derData: Data) -> Bool {
-        guard let secCert = SecCertificateCreateWithData(nil, derData as CFData) else {
-            ProxyLogger.keychain.error("Invalid certificate data for trust check")
-            return false
-        }
-        var settings: CFArray?
-        let userTrusted = SecTrustSettingsCopyTrustSettings(secCert, .user, &settings) == errSecSuccess
-        let adminTrusted = SecTrustSettingsCopyTrustSettings(secCert, .admin, &settings) == errSecSuccess
-        let systemTrusted = SecTrustSettingsCopyTrustSettings(secCert, .system, &settings) == errSecSuccess
-        
-        if userTrusted || adminTrusted || systemTrusted {
-            ProxyLogger.keychain.debug("CA certificate is trusted (user: %s, admin: %s, system: %s)", 
-                                        userTrusted ? "yes" : "no", 
-                                        adminTrusted ? "yes" : "no", 
-                                        systemTrusted ? "yes" : "no")
-        }
-        
-        return userTrusted || adminTrusted || systemTrusted
+    guard let secCert = SecCertificateCreateWithData(nil, derData as CFData) else {
+        ProxyLogger.keychain.error("Invalid certificate data for trust check")
+        return false
     }
+    var settings: CFArray?
+    
+    if SecTrustSettingsCopyTrustSettings(secCert, .user, &settings) == errSecSuccess {
+        ProxyLogger.keychain.debug("CA certificate is trusted (user domain)")
+        return true
+    }
+    
+    if SecTrustSettingsCopyTrustSettings(secCert, .admin, &settings) == errSecSuccess {
+        ProxyLogger.keychain.debug("CA certificate is trusted (admin domain)")
+        return true
+    }
+    
+    if SecTrustSettingsCopyTrustSettings(secCert, .system, &settings) == errSecSuccess {
+        ProxyLogger.keychain.debug("CA certificate is trusted (system domain)")
+        return true
+    }
+    
+    return false
+}
 }
