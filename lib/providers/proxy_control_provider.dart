@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/proxy_state.dart';
 import '../models/proxy_settings.dart';
+import 'map_local_provider.dart';
 import 'proxy_channel_provider.dart';
 
 final proxyStateProvider =
@@ -22,6 +23,7 @@ class ProxyStateNotifier extends StateNotifier<ProxyState> {
       final port = await channel.startProxy(
         port: settings.port,
         domainRules: settings.domainRules,
+        mapLocalRules: _ref.read(mapLocalProvider),
         connectionTimeoutSeconds: settings.connectionTimeoutSeconds,
         setSystemProxy: settings.setSystemProxy,
         httpsInterceptionEnabled: settings.httpsInterceptionEnabled,

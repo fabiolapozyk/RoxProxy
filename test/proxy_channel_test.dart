@@ -1,6 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rox_proxy/models/domain_rule.dart';
+import 'package:rox_proxy/models/map_local_rule.dart';
 import 'package:rox_proxy/services/proxy_channel.dart';
 
 void main() {
@@ -42,6 +43,71 @@ void main() {
         httpsInterceptionEnabled: true,
       );
       expect(result, 8888);
+    });
+
+    test('startProxy should forward Map Local rules', () async {
+      Map<String, dynamic>? capturedArgs;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(controlChannel, (call) async {
+        expect(call.method, 'startProxy');
+        capturedArgs = Map<String, dynamic>.from(call.arguments as Map);
+        return {'port': 8080};
+      });
+
+      await proxyChannel.startProxy(
+        port: 8080,
+        domainRules: const [],
+        connectionTimeoutSeconds: 30,
+        setSystemProxy: true,
+        httpsInterceptionEnabled: true,
+        mapLocalRules: [
+          MapLocalRule(
+            hostPattern: '*.example.com',
+            pathPattern: '/api/**',
+            httpMethod: 'GET',
+            filePath: '/tmp/mock.json',
+            statusCode: 201,
+            contentType: 'application/json',
+            customHeaders: {'X-Mock': '1'},
+            isEnabled: false,
+            isCaseSensitive: false,
+            useRegex: true,
+          ),
+        ],
+      );
+
+      final rules = capturedArgs!['mapLocalRules'] as List;
+      expect(rules.length, 1);
+      final rule = Map<String, dynamic>.from(rules.single as Map);
+      expect(rule['hostPattern'], '*.example.com');
+      expect(rule['pathPattern'], '/api/**');
+      expect(rule['httpMethod'], 'GET');
+      expect(rule['filePath'], '/tmp/mock.json');
+      expect(rule['statusCode'], 201);
+      expect(rule['contentType'], 'application/json');
+      expect(rule['customHeaders'], {'X-Mock': '1'});
+      expect(rule['isEnabled'], isFalse);
+      expect(rule['isCaseSensitive'], isFalse);
+      expect(rule['useRegex'], isTrue);
+      expect(rule['id'], isNotEmpty);
+    });
+
+    test('startProxy defaults to no Map Local rules', () async {
+      Map<String, dynamic>? capturedArgs;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(controlChannel, (call) async {
+        capturedArgs = Map<String, dynamic>.from(call.arguments as Map);
+        return {'port': 8080};
+      });
+
+      await proxyChannel.startProxy(
+        port: 8080,
+        domainRules: const [],
+        connectionTimeoutSeconds: 30,
+        setSystemProxy: true,
+        httpsInterceptionEnabled: true,
+      );
+      expect(capturedArgs!['mapLocalRules'], isEmpty);
     });
 
     test('startProxy should fall back to the requested port', () async {
@@ -188,6 +254,7 @@ void main() {
               'requestSize': 0,
               'isHTTPS': true,
               'isMITMDecrypted': true,
+              'isMapLocal': true,
               'state': 'inProgress',
             },
           });
@@ -201,7 +268,37 @@ void main() {
       expect(event.exchange.host, 'example.com');
       expect(event.exchange.isHTTPS, isTrue);
       expect(event.exchange.isMITMDecrypted, isTrue);
+      expect(event.exchange.isMapLocal, isTrue);
       expect(event.exchange.requestHeaders.single.name, 'Host');
+    });
+
+    test('exchangeStream defaults isMapLocal to false', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockStreamHandler(exchangesChannel, MockStreamHandler.inline(
+        onListen: (arguments, events) {
+          events.success({
+            'type': 'update',
+            'exchange': {
+              'id': 'ex-2',
+              'startTime': 1700000000000,
+              'method': 'GET',
+              'url': 'http://example.com/',
+              'scheme': 'http',
+              'host': 'example.com',
+              'port': 80,
+              'path': '/',
+              'requestHeaders': [],
+              'requestSize': 0,
+              'isHTTPS': false,
+              'isMITMDecrypted': false,
+              'state': 'completed',
+            },
+          });
+        },
+      ));
+
+      final event = await proxyChannel.exchangeStream.first;
+      expect(event.exchange.isMapLocal, isFalse);
     });
   });
 }

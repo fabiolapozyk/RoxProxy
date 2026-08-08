@@ -27,6 +27,7 @@ struct CapturedExchange: Identifiable, Sendable {
     var responseSize: Int?
     var isHTTPS: Bool
     var isMITMDecrypted: Bool
+    var isMapLocal: Bool = false
     var state: ExchangeState
 
     enum ExchangeState: Sendable, Equatable {
@@ -47,7 +48,8 @@ struct CapturedExchange: Identifiable, Sendable {
         requestBody: BodyContent? = nil,
         requestSize: Int = 0,
         isHTTPS: Bool = false,
-        isMITMDecrypted: Bool = false
+        isMITMDecrypted: Bool = false,
+        isMapLocal: Bool = false
     ) {
         self.id = id
         self.startTime = startTime
@@ -61,6 +63,7 @@ struct CapturedExchange: Identifiable, Sendable {
         self.requestSize = requestSize
         self.isHTTPS = isHTTPS
         self.isMITMDecrypted = isMITMDecrypted
+        self.isMapLocal = isMapLocal
         self.state = .inProgress
 
         // Parse path from URL (requires a valid absolute URL with host), fallback to "/"

@@ -431,7 +431,21 @@ class _ExchangeRow extends ConsumerWidget {
                 isMITMDecrypted: exchange.isMITMDecrypted,
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 4),
+            SizedBox(
+              width: 16,
+              child: exchange.isMapLocal
+                  ? Tooltip(
+                      message: 'Served from local file (Map Local)',
+                      child: Icon(
+                        Icons.insert_drive_file_outlined,
+                        size: 13,
+                        color: const Color(0xFFFF9500),
+                      ),
+                    )
+                  : null,
+            ),
+            const SizedBox(width: 4),
             SizedBox(width: widths.method, child: MethodBadge(exchange.method)),
             const SizedBox(width: 8),
             SizedBox(

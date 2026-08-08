@@ -28,6 +28,7 @@ class CapturedExchange {
   int? responseSize;
   final bool isHTTPS;
   final bool isMITMDecrypted;
+  final bool isMapLocal;
   ExchangeState state;
   String? errorMessage;
 
@@ -63,6 +64,7 @@ class CapturedExchange {
     this.responseSize,
     required this.isHTTPS,
     required this.isMITMDecrypted,
+    this.isMapLocal = false,
     this.state = ExchangeState.inProgress,
     this.errorMessage,
   });
@@ -95,6 +97,7 @@ class CapturedExchange {
       responseSize: map['responseSize'] as int?,
       isHTTPS: map['isHTTPS'] as bool,
       isMITMDecrypted: map['isMITMDecrypted'] as bool,
+      isMapLocal: map['isMapLocal'] as bool? ?? false,
       state: _parseState(map['state'] as String),
       errorMessage: map['errorMessage'] as String?,
     );

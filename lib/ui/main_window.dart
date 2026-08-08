@@ -2,14 +2,17 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/map_local_rule.dart';
 import '../models/proxy_settings.dart';
 import '../models/proxy_state.dart';
 import '../providers/exchange_provider.dart';
+import '../providers/map_local_provider.dart';
 import '../providers/proxy_control_provider.dart';
 import '../providers/settings_provider.dart';
 import 'components/ca_warning_banner.dart';
 import 'components/status_bar.dart';
 import 'detail/detail_view.dart';
+import 'map_local/map_local_panel.dart';
 import 'request_list/request_list_view.dart';
 import 'settings/settings_view.dart';
 
@@ -23,6 +26,7 @@ class MainWindow extends ConsumerStatefulWidget {
 class _MainWindowState extends ConsumerState<MainWindow> {
   bool _autoStartDone = false;
   List<String>? _lastDomainRuleIds;
+  List<String>? _lastMapLocalRuleKeys;
   double _listWidth = 520;
 
   @override
@@ -65,6 +69,39 @@ class _MainWindowState extends ConsumerState<MainWindow> {
     _lastDomainRuleIds = currentIds;
   }
 
+  /// Restarts the proxy whenever Map Local rules change while it's running,
+  /// so the new rules take effect immediately without a manual stop/start.
+  void _maybeRestartForMapLocalChange(List<MapLocalRule> rules) {
+    if (!ref.read(mapLocalLoadedProvider)) return;
+
+    final currentKeys = rules.map(_ruleKey).toList()..sort();
+
+    final proxyState = ref.read(proxyStateProvider);
+    if (proxyState.isRunning &&
+        _lastMapLocalRuleKeys != null &&
+        !listEquals(_lastMapLocalRuleKeys, currentKeys)) {
+      final notifier = ref.read(proxyStateProvider.notifier);
+      final settings = ref.read(settingsProvider);
+      notifier.stop().then((_) => notifier.start(settings));
+    }
+
+    _lastMapLocalRuleKeys = currentKeys;
+  }
+
+  static String _ruleKey(MapLocalRule r) =>
+      '${r.id}:${r.isEnabled}:${r.hostPattern}:${r.pathPattern}:'
+      '${r.httpMethod}:${r.filePath}:${r.statusCode}:${r.contentType}:'
+      '${r.isCaseSensitive}:${r.useRegex}:${r.customHeaders}';
+
+  void _openMapLocal() {
+    showDialog(
+      context: context,
+      builder: (_) => const Dialog(
+        child: SizedBox(width: 780, height: 560, child: MapLocalPanel()),
+      ),
+    );
+  }
+
   void _openSettings() {
     showDialog(
       context: context,
@@ -86,11 +123,15 @@ class _MainWindowState extends ConsumerState<MainWindow> {
     final exchanges = ref.watch(exchangeListProvider);
     final selectedExchange = ref.watch(selectedExchangeProvider);
     final settings = ref.watch(settingsProvider);
+    final mapLocalRules = ref.watch(mapLocalProvider);
     final httpsEnabled = settings.httpsInterceptionEnabled;
 
-    // Restart proxy if domain rules or HTTPS interception flag changed while running
+    // Restart proxy if domain rules, Map Local rules or HTTPS interception
+    // flag changed while running
     WidgetsBinding.instance.addPostFrameCallback(
         (_) => _maybeRestartForRuleChange(settings));
+    WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _maybeRestartForMapLocalChange(mapLocalRules));
 
     return Scaffold(
       appBar: _buildToolbar(context, proxyState, httpsEnabled, exchanges.isEmpty),
@@ -196,6 +237,13 @@ class _MainWindowState extends ConsumerState<MainWindow> {
           label: 'Clear',
           enabled: !exchangesEmpty,
           onPressed: () => ref.read(exchangeListProvider.notifier).clear(),
+        ),
+        const SizedBox(width: 4),
+        // Map Local
+        _ToolbarButton(
+          icon: Icons.source_outlined,
+          label: 'Map Local',
+          onPressed: _openMapLocal,
         ),
         const SizedBox(width: 4),
         // Settings

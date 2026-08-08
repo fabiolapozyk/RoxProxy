@@ -17,6 +17,8 @@ final class ProxyServer {
     // Snapshot of domain rules taken at start time (Sendable value type, safe to pass to NIO threads)
     private let domainRules: [DomainRule]
     private let httpsInterceptionEnabled: Bool
+    // Snapshot of Map Local rules taken at start time.
+    private let mapLocalRules: [MapLocalRule]
 
     private var channel: Channel?
     private var group: MultiThreadedEventLoopGroup?
@@ -28,6 +30,7 @@ final class ProxyServer {
         port: Int,
         store: BridgeSessionStore,
         domainRules: [DomainRule] = [],
+        mapLocalRules: [MapLocalRule] = [],
         connectionTimeoutSeconds: Int = 30,
         certificateAuthority: CertificateAuthority? = nil,
         domainCertCache: DomainCertificateCache? = nil,
@@ -39,6 +42,7 @@ final class ProxyServer {
         self.domainCertCache = domainCertCache
         self.connectionTimeoutSeconds = connectionTimeoutSeconds
         self.domainRules = domainRules
+        self.mapLocalRules = mapLocalRules
         self.httpsInterceptionEnabled = httpsInterceptionEnabled
     }
 
@@ -60,6 +64,10 @@ final class ProxyServer {
         let domainRules   = self.domainRules
         let timeoutSecs   = self.connectionTimeoutSeconds
         let httpsEnabled  = self.httpsInterceptionEnabled
+        let mapLocal      = MapLocalMatcher(rules: self.mapLocalRules)
+        if !mapLocal.isEmpty {
+            ProxyLogger.map.info("Map Local: %d enabled rule(s) loaded", self.mapLocalRules.filter(\.isEnabled).count)
+        }
 
         let bootstrap = ServerBootstrap(group: group)
             .serverChannelOption(ChannelOptions.backlog, value: 256)
@@ -80,7 +88,8 @@ final class ProxyServer {
                                 certificateAuthority: ca,
                                 domainCertCache: certCache,
                                 domainRules: domainRules,
-                                httpsInterceptionEnabled: httpsEnabled
+                                httpsInterceptionEnabled: httpsEnabled,
+                                mapLocalMatcher: mapLocal
                             ),
                             name: "HTTPProxyHandler"
                         )
