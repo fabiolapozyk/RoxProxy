@@ -1,36 +1,73 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mockito/mockito.dart';
-import 'package:mockito/annotations.dart';
 import 'package:rox_proxy/services/proxy_channel.dart';
-import 'certificate_test.mocks.dart';
 
-@GenerateMocks([ProxyChannel])
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  const controlChannel = MethodChannel('com.roxproxy/control');
+
+  setUp(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(controlChannel, null);
+  });
+
   group('Certificate Tests', () {
     late ProxyChannel proxyChannel;
 
     setUp(() {
-      proxyChannel = MockProxyChannel();
+      proxyChannel = ProxyChannel();
     });
 
     test('installCACertificate should return true on success', () async {
-      when(proxyChannel.installCACertificate()).thenAnswer((_) async => true);
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(controlChannel, (call) async {
+        expect(call.method, 'installCACertificate');
+        return {'trusted': true};
+      });
+
       final result = await proxyChannel.installCACertificate();
       expect(result, isTrue);
     });
 
-    test('checkCATrust should return a boolean', () async {
-      when(proxyChannel.checkCATrust()).thenAnswer((_) async => true);
+    test('installCACertificate should return false when untrusted', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(controlChannel, (call) async => null);
+
+      final result = await proxyChannel.installCACertificate();
+      expect(result, isFalse);
+    });
+
+    test('checkCATrust should return the trust boolean', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(controlChannel, (call) async {
+        expect(call.method, 'checkCATrust');
+        return {'trusted': true};
+      });
+
       final result = await proxyChannel.checkCATrust();
-      expect(result, isA<bool>());
+      expect(result, isTrue);
     });
 
     test('getCAStatus should return a valid CaStatus object', () async {
-      when(proxyChannel.getCAStatus()).thenAnswer((_) async => CaStatus(initialized: true, trusted: true));
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(controlChannel, (call) async {
+        expect(call.method, 'getCAStatus');
+        return {'initialized': true, 'trusted': true};
+      });
+
       final result = await proxyChannel.getCAStatus();
       expect(result, isA<CaStatus>());
       expect(result.initialized, isTrue);
       expect(result.trusted, isTrue);
+    });
+
+    test('getCAStatus should default to uninitialized/untrusted', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(controlChannel, (call) async => null);
+
+      final result = await proxyChannel.getCAStatus();
+      expect(result.initialized, isFalse);
+      expect(result.trusted, isFalse);
     });
   });
 }

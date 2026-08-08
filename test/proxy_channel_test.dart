@@ -1,46 +1,207 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mockito/mockito.dart';
-import 'package:mockito/annotations.dart';
+import 'package:rox_proxy/models/domain_rule.dart';
 import 'package:rox_proxy/services/proxy_channel.dart';
-import 'proxy_channel_test.mocks.dart';
 
-@GenerateMocks([ProxyChannel])
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  const controlChannel = MethodChannel('com.roxproxy/control');
+  const exchangesChannel = EventChannel('com.roxproxy/exchanges');
+
+  setUp(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(controlChannel, null);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockStreamHandler(exchangesChannel, null);
+  });
+
   group('ProxyChannel Tests', () {
     late ProxyChannel proxyChannel;
 
     setUp(() {
-      proxyChannel = MockProxyChannel();
+      proxyChannel = ProxyChannel();
     });
 
-    test('startProxy should return a valid port on success', () async {
-      when(proxyChannel.startProxy(
-        port: 8888,
-        domainRules: [],
-        connectionTimeoutSeconds: 30,
-        setSystemProxy: false,
-        httpsInterceptionEnabled: true,
-      )).thenAnswer((_) async => 8888);
+    test('startProxy should return the port on success', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(controlChannel, (call) async {
+        expect(call.method, 'startProxy');
+        expect((call.arguments as Map)['port'], 8888);
+        expect((call.arguments as Map)['connectionTimeoutSeconds'], 30);
+        expect((call.arguments as Map)['setSystemProxy'], false);
+        expect((call.arguments as Map)['httpsInterceptionEnabled'], true);
+        expect((call.arguments as Map)['domainRules'], isA<List>());
+        return {'port': 8888};
+      });
+
       final result = await proxyChannel.startProxy(
         port: 8888,
-        domainRules: [],
+        domainRules: [DomainRule(domain: 'example.com')],
         connectionTimeoutSeconds: 30,
         setSystemProxy: false,
         httpsInterceptionEnabled: true,
       );
-      expect(result, isA<int>());
+      expect(result, 8888);
     });
 
-    test('stopProxy should complete successfully', () async {
-      when(proxyChannel.stopProxy()).thenAnswer((_) async => true);
+    test('startProxy should fall back to the requested port', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(controlChannel, (call) async => null);
+
+      final result = await proxyChannel.startProxy(
+        port: 9999,
+        domainRules: const [],
+        connectionTimeoutSeconds: 15,
+        setSystemProxy: true,
+        httpsInterceptionEnabled: false,
+      );
+      expect(result, 9999);
+    });
+
+    test('stopProxy should invoke the channel', () async {
+      var called = false;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(controlChannel, (call) async {
+        expect(call.method, 'stopProxy');
+        called = true;
+        return null;
+      });
+
       await proxyChannel.stopProxy();
-      expect(true, isTrue);
+      expect(called, isTrue);
     });
 
-    test('getProxyState should return a valid state', () async {
-      when(proxyChannel.getProxyState()).thenAnswer((_) async => 'running');
+    test('configureSystemProxy should forward args', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(controlChannel, (call) async {
+        expect(call.method, 'configureSystemProxy');
+        expect((call.arguments as Map)['enabled'], true);
+        expect((call.arguments as Map)['port'], 8888);
+        return null;
+      });
+
+      await proxyChannel.configureSystemProxy(enabled: true, port: 8888);
+    });
+
+    test('getProxyState should return the state string', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(controlChannel, (call) async {
+        expect(call.method, 'getProxyState');
+        return {'state': 'running'};
+      });
+
       final result = await proxyChannel.getProxyState();
-      expect(result, isA<String>());
+      expect(result, 'running');
+    });
+
+    test('getProxyState should default to stopped', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(controlChannel, (call) async => null);
+
+      final result = await proxyChannel.getProxyState();
+      expect(result, 'stopped');
+    });
+
+    test('fetchBody should return raw bytes', () async {
+      final bytes = Uint8List.fromList([1, 2, 3, 4]);
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(controlChannel, (call) async {
+        expect(call.method, 'fetchBody');
+        expect((call.arguments as Map)['ref'], 'body-ref-1');
+        return bytes;
+      });
+
+      final result = await proxyChannel.fetchBody('body-ref-1');
+      expect(result, bytes);
+    });
+
+    test('releaseBody should invoke the channel', () async {
+      var called = false;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(controlChannel, (call) async {
+        expect(call.method, 'releaseBody');
+        expect((call.arguments as Map)['ref'], 'body-ref-1');
+        called = true;
+        return null;
+      });
+
+      await proxyChannel.releaseBody('body-ref-1');
+      expect(called, isTrue);
+    });
+
+    test('releaseAllBodies should invoke the channel', () async {
+      var called = false;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(controlChannel, (call) async {
+        expect(call.method, 'releaseAllBodies');
+        called = true;
+        return null;
+      });
+
+      await proxyChannel.releaseAllBodies();
+      expect(called, isTrue);
+    });
+
+    test('decompressBody should forward data and encoding', () async {
+      final compressed = Uint8List.fromList([0x1f, 0x8b, 0x08]);
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(controlChannel, (call) async {
+        expect(call.method, 'decompressBody');
+        expect((call.arguments as Map)['data'], compressed);
+        expect((call.arguments as Map)['encoding'], 'gzip');
+        return Uint8List.fromList([72, 105]);
+      });
+
+      final result = await proxyChannel.decompressBody(compressed, 'gzip');
+      expect(result, Uint8List.fromList([72, 105]));
+    });
+
+    test('replayRequest should return the exchange id', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(controlChannel, (call) async {
+        expect(call.method, 'replayRequest');
+        return {'exchangeId': 'exchange-42'};
+      });
+
+      final result = await proxyChannel.replayRequest({'url': 'https://a'});
+      expect(result, 'exchange-42');
+    });
+
+    test('exchangeStream should parse events from the EventChannel', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockStreamHandler(exchangesChannel, MockStreamHandler.inline(
+        onListen: (arguments, events) {
+          events.success({
+            'type': 'new',
+            'exchange': {
+              'id': 'ex-1',
+              'startTime': 1700000000000,
+              'method': 'GET',
+              'url': 'https://example.com/path',
+              'scheme': 'https',
+              'host': 'example.com',
+              'port': 443,
+              'path': '/path',
+              'requestHeaders': [
+                {'name': 'Host', 'value': 'example.com'},
+              ],
+              'requestSize': 0,
+              'isHTTPS': true,
+              'isMITMDecrypted': true,
+              'state': 'inProgress',
+            },
+          });
+        },
+      ));
+
+      final event = await proxyChannel.exchangeStream.first;
+      expect(event.type, 'new');
+      expect(event.exchange.id, 'ex-1');
+      expect(event.exchange.method, 'GET');
+      expect(event.exchange.host, 'example.com');
+      expect(event.exchange.isHTTPS, isTrue);
+      expect(event.exchange.isMITMDecrypted, isTrue);
+      expect(event.exchange.requestHeaders.single.name, 'Host');
     });
   });
 }
