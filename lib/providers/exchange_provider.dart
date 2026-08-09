@@ -16,8 +16,8 @@ final selectedExchangeIdProvider = StateProvider<String?>((ref) => null);
 // --- Exchange list ---
 final exchangeListProvider =
     StateNotifierProvider<ExchangeListNotifier, List<CapturedExchange>>((ref) {
-  return ExchangeListNotifier(ref);
-});
+      return ExchangeListNotifier(ref);
+    });
 
 // --- Filtered exchange list (derived) ---
 final filteredExchangesProvider = Provider<List<CapturedExchange>>((ref) {

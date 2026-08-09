@@ -4,6 +4,7 @@
 # Swift / SPM
 /.build
 packages/rox_proxy_native/.build/
+packages/rox_proxy_native/macos/*Tests/.build/
 xcuserdata/
 DerivedData/
 .swiftpm/configuration/registries.json
@@ -38,7 +39,7 @@ macos/Podfile.lock
 .swiftpm/xcode/xcshareddata/xcschemes/
 
 # Release scripts
-scripts/
+scripts/release_script.sh
 
 # Test certificates and temporary files
 /TestCerts/

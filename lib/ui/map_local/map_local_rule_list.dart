@@ -72,13 +72,13 @@ class _RuleTile extends StatelessWidget {
         children: [
           ReorderableDragStartListener(
             index: priority - 1,
-            child: const Icon(Icons.drag_indicator,
-                size: 18, color: Colors.grey),
+            child: const Icon(
+              Icons.drag_indicator,
+              size: 18,
+              color: Colors.grey,
+            ),
           ),
-          Checkbox(
-            value: rule.isEnabled,
-            onChanged: (_) => onToggle(),
-          ),
+          Checkbox(value: rule.isEnabled, onChanged: (_) => onToggle()),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -94,10 +94,9 @@ class _RuleTile extends StatelessWidget {
                           fontSize: 13,
                           color: rule.isEnabled
                               ? null
-                              : Theme.of(context)
-                                  .colorScheme
-                                  .onSurface
-                                  .withAlpha(100),
+                              : Theme.of(
+                                  context,
+                                ).colorScheme.onSurface.withAlpha(100),
                         ),
                       ),
                     ),

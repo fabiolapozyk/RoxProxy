@@ -4,11 +4,11 @@ sealed class ProxyState {
   bool get isRunning => this is ProxyRunning;
 
   String get description => switch (this) {
-        ProxyStopped() => 'Stopped',
-        ProxyStarting() => 'Starting…',
-        ProxyRunning(:final port) => 'Running on :$port',
-        ProxyError(:final message) => 'Error: $message',
-      };
+    ProxyStopped() => 'Stopped',
+    ProxyStarting() => 'Starting…',
+    ProxyRunning(:final port) => 'Running on :$port',
+    ProxyError(:final message) => 'Error: $message',
+  };
 }
 
 class ProxyStopped extends ProxyState {

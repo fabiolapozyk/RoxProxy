@@ -24,9 +24,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [mapLocalServiceProvider.overrideWithValue(service)],
-        child: const MaterialApp(
-          home: Scaffold(body: MapLocalRuleManager()),
-        ),
+        child: const MaterialApp(home: Scaffold(body: MapLocalRuleManager())),
       ),
     );
     await tester.pumpAndSettle();
@@ -34,8 +32,12 @@ void main() {
 
   testWidgets('shows empty state when no rules exist', (tester) async {
     await pumpPanel(tester);
-    expect(find.text('No Map Local rules.\nAdd a rule to start serving local files.'),
-        findsOneWidget);
+    expect(
+      find.text(
+        'No Map Local rules.\nAdd a rule to start serving local files.',
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('adds a rule through the dialog', (tester) async {
@@ -45,11 +47,17 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(
-        find.widgetWithText(TextField, 'Name (optional)'), 'Mock users');
+      find.widgetWithText(TextField, 'Name (optional)'),
+      'Mock users',
+    );
     await tester.enterText(
-        find.widgetWithText(TextField, 'Path pattern'), '/api/users');
+      find.widgetWithText(TextField, 'Path pattern'),
+      '/api/users',
+    );
     await tester.enterText(
-        find.widgetWithText(TextField, 'Host pattern'), 'api.example.com');
+      find.widgetWithText(TextField, 'Host pattern'),
+      'api.example.com',
+    );
 
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
@@ -69,7 +77,9 @@ void main() {
     await tester.tap(find.text('Add rule'));
     await tester.pumpAndSettle();
     await tester.enterText(
-        find.widgetWithText(TextField, 'Path pattern'), '/api/old');
+      find.widgetWithText(TextField, 'Path pattern'),
+      '/api/old',
+    );
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
 
@@ -77,8 +87,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.edit_outlined));
     await tester.pumpAndSettle();
 
-    final pathField =
-        find.widgetWithText(TextField, 'Path pattern');
+    final pathField = find.widgetWithText(TextField, 'Path pattern');
     expect(tester.widget<TextField>(pathField).controller!.text, '/api/old');
 
     await tester.enterText(pathField, '/api/new');
@@ -94,7 +103,9 @@ void main() {
     await tester.tap(find.text('Add rule'));
     await tester.pumpAndSettle();
     await tester.enterText(
-        find.widgetWithText(TextField, 'Path pattern'), '/api/del');
+      find.widgetWithText(TextField, 'Path pattern'),
+      '/api/del',
+    );
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
     expect(find.textContaining('/api/del'), findsWidgets);
@@ -102,8 +113,12 @@ void main() {
     await tester.tap(find.byIcon(Icons.delete_outline));
     await tester.pumpAndSettle();
 
-    expect(find.text('No Map Local rules.\nAdd a rule to start serving local files.'),
-        findsOneWidget);
+    expect(
+      find.text(
+        'No Map Local rules.\nAdd a rule to start serving local files.',
+      ),
+      findsOneWidget,
+    );
     expect(await service.load(), isEmpty);
   });
 }

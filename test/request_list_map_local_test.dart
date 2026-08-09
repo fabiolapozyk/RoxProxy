@@ -24,21 +24,21 @@ void main() {
   });
 
   CapturedExchange completedExchange() => CapturedExchange(
-        id: 'ex-1',
-        startTime: DateTime.now(),
-        method: 'GET',
-        url: 'https://api.example.com/users?id=1',
-        scheme: 'https',
-        host: 'api.example.com',
-        port: 443,
-        path: '/users?id=1',
-        requestHeaders: const [],
-        requestSize: 0,
-        isHTTPS: true,
-        isMITMDecrypted: true,
-        state: ExchangeState.completed,
-        statusCode: 200,
-      );
+    id: 'ex-1',
+    startTime: DateTime.now(),
+    method: 'GET',
+    url: 'https://api.example.com/users?id=1',
+    scheme: 'https',
+    host: 'api.example.com',
+    port: 443,
+    path: '/users?id=1',
+    requestHeaders: const [],
+    requestSize: 0,
+    isHTTPS: true,
+    isMITMDecrypted: true,
+    state: ExchangeState.completed,
+    statusCode: 200,
+  );
 
   Future<void> pumpList(WidgetTester tester) async {
     await tester.pumpWidget(
@@ -68,64 +68,67 @@ void main() {
     expect(find.text('Mock with local file…'), findsOneWidget);
   });
 
-  testWidgets('creating a rule from the context menu prefills host/path/method',
-      (tester) async {
-    await pumpList(tester);
+  testWidgets(
+    'creating a rule from the context menu prefills host/path/method',
+    (tester) async {
+      await pumpList(tester);
 
-    // Capture the container before the flow: the notifier is created lazily
-    // on first read.
-    final container =
-        ProviderScope.containerOf(tester.element(find.byType(RequestListView)));
-    container.read(mapLocalProvider);
+      // Capture the container before the flow: the notifier is created lazily
+      // on first read.
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(RequestListView)),
+      );
+      container.read(mapLocalProvider);
 
-    final rowCenter = tester.getCenter(find.text('api.example.com'));
-    await tester.tapAt(rowCenter, buttons: kSecondaryMouseButton);
-    await tester.pumpAndSettle();
+      final rowCenter = tester.getCenter(find.text('api.example.com'));
+      await tester.tapAt(rowCenter, buttons: kSecondaryMouseButton);
+      await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Mock with local file…'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('Mock with local file…'));
+      await tester.pumpAndSettle();
 
-    // Prefilled with the exchange data (query string stripped from path).
-    expect(
-      tester
-          .widget<TextField>(find.widgetWithText(TextField, 'Host pattern'))
-          .controller!
-          .text,
-      'api.example.com',
-    );
-    expect(
-      tester
-          .widget<TextField>(find.widgetWithText(TextField, 'Path pattern'))
-          .controller!
-          .text,
-      '/users',
-    );
-    // Method dropdown prefilled with GET.
-    expect(
-      find.descendant(
-        of: find.byType(DropdownButtonFormField<String>),
-        matching: find.text('GET'),
-      ),
-      findsOneWidget,
-    );
+      // Prefilled with the exchange data (query string stripped from path).
+      expect(
+        tester
+            .widget<TextField>(find.widgetWithText(TextField, 'Host pattern'))
+            .controller!
+            .text,
+        'api.example.com',
+      );
+      expect(
+        tester
+            .widget<TextField>(find.widgetWithText(TextField, 'Path pattern'))
+            .controller!
+            .text,
+        '/users',
+      );
+      // Method dropdown prefilled with GET.
+      expect(
+        find.descendant(
+          of: find.byType(DropdownButtonFormField<String>),
+          matching: find.text('GET'),
+        ),
+        findsOneWidget,
+      );
 
-    await tester.ensureVisible(find.text('Save'));
-    await tester.tap(find.text('Save'));
-    await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Save'));
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
 
-    // Rule is added to the provider and persisted to disk.
-    final rules = container.read(mapLocalProvider);
-    expect(rules.length, 1);
-    expect(rules.single.hostPattern, 'api.example.com');
-    expect(rules.single.pathPattern, '/users');
-    expect(rules.single.httpMethod, 'GET');
-    final persisted = await service.load();
-    expect(persisted.single.pathPattern, '/users');
+      // Rule is added to the provider and persisted to disk.
+      final rules = container.read(mapLocalProvider);
+      expect(rules.length, 1);
+      expect(rules.single.hostPattern, 'api.example.com');
+      expect(rules.single.pathPattern, '/users');
+      expect(rules.single.httpMethod, 'GET');
+      final persisted = await service.load();
+      expect(persisted.single.pathPattern, '/users');
 
-    // "Rule added" snackbar is shown.
-    expect(find.textContaining('Map Local rule added'), findsOneWidget);
+      // "Rule added" snackbar is shown.
+      expect(find.textContaining('Map Local rule added'), findsOneWidget);
 
-    // Let the snackbar timer expire.
-    await tester.pump(const Duration(seconds: 3));
-  });
+      // Let the snackbar timer expire.
+      await tester.pump(const Duration(seconds: 3));
+    },
+  );
 }

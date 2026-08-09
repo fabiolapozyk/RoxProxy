@@ -43,9 +43,9 @@ class MapLocalService {
       if (!dir.existsSync()) dir.createSync(recursive: true);
       _rotateBackups();
       File(_filePath).writeAsStringSync(
-        const JsonEncoder.withIndent('  ').convert(
-          rules.map((r) => r.toJson()).toList(),
-        ),
+        const JsonEncoder.withIndent(
+          '  ',
+        ).convert(rules.map((r) => r.toJson()).toList()),
       );
     } catch (_) {}
   }
@@ -58,6 +58,8 @@ class MapLocalService {
       final dst = '$_filePath.backup.${i + 1}';
       if (File(src).existsSync()) File(src).renameSync(dst);
     }
-    if (File(_filePath).existsSync()) File(_filePath).renameSync('$_filePath.backup.1');
+    if (File(_filePath).existsSync()) {
+      File(_filePath).renameSync('$_filePath.backup.1');
+    }
   }
 }

@@ -12,8 +12,8 @@ final mapLocalLoadedProvider = StateProvider<bool>((ref) => false);
 
 final mapLocalProvider =
     StateNotifierProvider<MapLocalNotifier, List<MapLocalRule>>((ref) {
-  return MapLocalNotifier(ref.read(mapLocalServiceProvider), ref);
-});
+      return MapLocalNotifier(ref.read(mapLocalServiceProvider), ref);
+    });
 
 class MapLocalNotifier extends StateNotifier<List<MapLocalRule>> {
   final MapLocalService _service;
@@ -61,7 +61,8 @@ class MapLocalNotifier extends StateNotifier<List<MapLocalRule>> {
 
   void toggleRule(String id) {
     state = [
-      for (final r in state) r.id == id ? r.copyWith(isEnabled: !r.isEnabled) : r,
+      for (final r in state)
+        r.id == id ? r.copyWith(isEnabled: !r.isEnabled) : r,
     ];
     _save();
   }

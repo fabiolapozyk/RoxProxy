@@ -119,12 +119,19 @@ class _MainWindowState extends ConsumerState<MainWindow> {
     // Restart proxy if domain rules, Map Local rules or HTTPS interception
     // flag changed while running
     WidgetsBinding.instance.addPostFrameCallback(
-        (_) => _maybeRestartForRuleChange(settings));
+      (_) => _maybeRestartForRuleChange(settings),
+    );
     WidgetsBinding.instance.addPostFrameCallback(
-        (_) => _maybeRestartForMapLocalChange(mapLocalRules));
+      (_) => _maybeRestartForMapLocalChange(mapLocalRules),
+    );
 
     return Scaffold(
-      appBar: _buildToolbar(context, proxyState, httpsEnabled, exchanges.isEmpty),
+      appBar: _buildToolbar(
+        context,
+        proxyState,
+        httpsEnabled,
+        exchanges.isEmpty,
+      ),
       body: Column(
         children: [
           CaWarningBanner(onOpenSettings: _openSettings),
@@ -183,12 +190,16 @@ class _MainWindowState extends ConsumerState<MainWindow> {
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       titleSpacing: 12,
-      title: const Text('Rox Proxy',
-          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+      title: const Text(
+        'Rox Proxy',
+        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+      ),
       actions: [
         // Start / Stop
         _ToolbarButton(
-          icon: proxyState.isRunning ? Icons.stop_circle_outlined : Icons.play_circle_outlined,
+          icon: proxyState.isRunning
+              ? Icons.stop_circle_outlined
+              : Icons.play_circle_outlined,
           label: proxyState.isRunning ? 'Stop' : 'Start',
           color: proxyState.isRunning
               ? const Color(0xFFFF3B30)
@@ -207,8 +218,12 @@ class _MainWindowState extends ConsumerState<MainWindow> {
         // HTTPS interception toggle
         _ToolbarButton(
           icon: httpsEnabled ? Icons.lock_outlined : Icons.lock_open_outlined,
-          label: httpsEnabled ? 'HTTPS interception on' : 'HTTPS interception off',
-          color: httpsEnabled ? const Color(0xFF34C759) : const Color(0xFFFF9500),
+          label: httpsEnabled
+              ? 'HTTPS interception on'
+              : 'HTTPS interception off',
+          color: httpsEnabled
+              ? const Color(0xFF34C759)
+              : const Color(0xFFFF9500),
           onPressed: () {
             final notifier = ref.read(settingsProvider.notifier);
             notifier.setHttpsInterceptionEnabled(!httpsEnabled);
@@ -382,8 +397,11 @@ class _EmptyDetail extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.wifi_tethering,
-              size: 48, color: Colors.grey.withAlpha(100)),
+          Icon(
+            Icons.wifi_tethering,
+            size: 48,
+            color: Colors.grey.withAlpha(100),
+          ),
           const SizedBox(height: 12),
           Text(
             'Select a request to inspect',

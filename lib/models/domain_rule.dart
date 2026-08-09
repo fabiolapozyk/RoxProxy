@@ -5,11 +5,8 @@ class DomainRule {
   String domain;
   bool isEnabled;
 
-  DomainRule({
-    String? id,
-    required this.domain,
-    this.isEnabled = true,
-  }) : id = id ?? UUID.v4();
+  DomainRule({String? id, required this.domain, this.isEnabled = true})
+    : id = id ?? UUID.v4();
 
   bool matches(String host) {
     if (!isEnabled) return false;
@@ -21,14 +18,14 @@ class DomainRule {
   }
 
   Map<String, dynamic> toMap() => {
-        'id': id,
-        'domain': domain,
-        'isEnabled': isEnabled,
-      };
+    'id': id,
+    'domain': domain,
+    'isEnabled': isEnabled,
+  };
 
   factory DomainRule.fromMap(Map<String, dynamic> map) => DomainRule(
-        id: map['id'] as String?,
-        domain: map['domain'] as String,
-        isEnabled: map['isEnabled'] as bool? ?? true,
-      );
+    id: map['id'] as String?,
+    domain: map['domain'] as String,
+    isEnabled: map['isEnabled'] as bool? ?? true,
+  );
 }

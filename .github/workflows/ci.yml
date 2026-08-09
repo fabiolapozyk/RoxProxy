@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Set up Flutter macOS toolchain
+        run: flutter config --enable-macos-desktop
+
+      - name: Check formatting
+        run: dart format --output=none --set-exit-if-changed lib test integration_test
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Dart unit tests
+        run: flutter test test/
+
+      - name: Swift core tests
+        working-directory: packages/rox_proxy_native/macos/CoreTests
+        run: swift test
+
+      - name: Debug build
+        run: flutter build macos --debug

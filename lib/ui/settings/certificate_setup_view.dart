@@ -66,8 +66,7 @@ class CertificateSetupView extends ConsumerWidget {
               padding: const EdgeInsets.only(bottom: 12),
               child: Text(
                 ca.installError!,
-                style: const TextStyle(
-                    color: Color(0xFFFF3B30), fontSize: 12),
+                style: const TextStyle(color: Color(0xFFFF3B30), fontSize: 12),
               ),
             ),
           FilledButton.icon(
@@ -79,19 +78,25 @@ class CertificateSetupView extends ConsumerWidget {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.download_outlined, size: 16),
-            label: Text(ca.trusted
-                ? 'Reinstall CA Certificate'
-                : 'Install & Trust CA Certificate'),
-            style: FilledButton.styleFrom(textStyle: const TextStyle(fontSize: 13)),
+            label: Text(
+              ca.trusted
+                  ? 'Reinstall CA Certificate'
+                  : 'Install & Trust CA Certificate',
+            ),
+            style: FilledButton.styleFrom(
+              textStyle: const TextStyle(fontSize: 13),
+            ),
           ),
           const SizedBox(height: 28),
           const Divider(),
           const SizedBox(height: 16),
           Row(
             children: [
-              Icon(Icons.phone_android_outlined,
-                  size: 16,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant),
+              Icon(
+                Icons.phone_android_outlined,
+                size: 16,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
               const SizedBox(width: 6),
               Text(
                 'Mobile / LAN devices',
@@ -147,7 +152,8 @@ class _LanInstructions extends ConsumerWidget {
             const SizedBox(height: 8),
             const _InstructionStep(
               number: '3',
-              text: 'Download and install the certificate, then trust it in '
+              text:
+                  'Download and install the certificate, then trust it in '
                   'the device settings.',
             ),
           ],
@@ -210,10 +216,7 @@ class _InstructionStep extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(text, style: const TextStyle(fontSize: 13, height: 1.4)),
-              if (trailing != null) ...[
-                const SizedBox(height: 4),
-                trailing!,
-              ],
+              if (trailing != null) ...[const SizedBox(height: 4), trailing!],
             ],
           ),
         ),
@@ -253,21 +256,18 @@ class _CopyableChipState extends State<_CopyableChip> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-            Text(
-              widget.value,
-              style: const TextStyle(
-                fontFamily: 'monospace',
-                fontSize: 12,
+              Text(
+                widget.value,
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
               ),
-            ),
-            const SizedBox(width: 6),
-            Icon(
-              _copied ? Icons.check : Icons.copy_outlined,
-              size: 12,
-              color: _copied
-                  ? const Color(0xFF34C759)
-                  : Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
+              const SizedBox(width: 6),
+              Icon(
+                _copied ? Icons.check : Icons.copy_outlined,
+                size: 12,
+                color: _copied
+                    ? const Color(0xFF34C759)
+                    : Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ],
           ),
         ),

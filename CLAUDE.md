@@ -4,19 +4,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
+Dopo OGNI modifica, eseguire la verifica prima di dichiarare il lavoro finito.
+
 ```bash
-# Build (Flutter macOS app)
-flutter build macos
+# Verifica completa (format + analyze + unit test + swift test + build debug)
+./scripts/verify.sh
+
+# Verifica rapida (salta build debug, ~1-2 min)
+./scripts/verify.sh --fast
+
+# Smoke test end-to-end (build release, launch app, /health, /stats, richiesta HTTP reale, clean shutdown)
+./scripts/smoke.sh
 
 # Run (debug)
 flutter run -d macos
-
-# Test (Dart)
-flutter test
-
-# Build Swift plugin only (for quick compilation check)
-cd packages/rox_proxy_native && swift build
 ```
+
+> **Non eseguire `swift build`/`swift test` nella dir del plugin**:
+> fallisce con "no such module 'FlutterMacOS'". Per il core Swift:
+> `cd packages/rox_proxy_native/macos/CoreTests && swift test`.
+> Il check di compilazione completo del plugin avviene tramite `flutter build macos --debug`.
 
 ## Architecture
 
@@ -50,6 +57,9 @@ packages/rox_proxy_native/   # Local Flutter plugin (Swift)
       SystemProxy/           # SystemProxyManager, CrashGuard
       Models/                # CapturedExchange, DomainRule, ProxySettings (Swift side)
       Utilities/             # GzipDecompressor
+  macos/CoreTests/           # Package SPM standalone: test del core Swift puro
+                             # (symlink dei sorgenti; NON si può testare via swift test
+                             # il plugin completo perché importa FlutterMacOS)
 ```
 
 ### Platform channels

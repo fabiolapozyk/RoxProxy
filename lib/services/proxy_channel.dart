@@ -25,14 +25,12 @@ class ProxyChannel {
   Stream<ExchangeEvent>? _exchangeStream;
 
   Stream<ExchangeEvent> get exchangeStream {
-    _exchangeStream ??= _events
-        .receiveBroadcastStream()
-        .map((raw) {
-          final map = Map<Object?, Object?>.from(raw as Map);
-          final type = map['type'] as String;
-          final exchangeRaw = Map<Object?, Object?>.from(map['exchange'] as Map);
-          return ExchangeEvent(type, CapturedExchange.fromMap(exchangeRaw));
-        });
+    _exchangeStream ??= _events.receiveBroadcastStream().map((raw) {
+      final map = Map<Object?, Object?>.from(raw as Map);
+      final type = map['type'] as String;
+      final exchangeRaw = Map<Object?, Object?>.from(map['exchange'] as Map);
+      return ExchangeEvent(type, CapturedExchange.fromMap(exchangeRaw));
+    });
     return _exchangeStream!;
   }
 
@@ -99,7 +97,9 @@ class ProxyChannel {
   // MARK: - Body management
 
   Future<Uint8List?> fetchBody(String ref) async {
-    final result = await _method.invokeMethod<Uint8List>('fetchBody', {'ref': ref});
+    final result = await _method.invokeMethod<Uint8List>('fetchBody', {
+      'ref': ref,
+    });
     return result;
   }
 

@@ -19,7 +19,12 @@ void main() {
 
   testWidgets('sidebar shows all sections', (tester) async {
     await pumpSettings(tester);
-    for (final label in ['General', 'HTTPS Domains', 'Certificate', 'Map Local']) {
+    for (final label in [
+      'General',
+      'HTTPS Domains',
+      'Certificate',
+      'Map Local',
+    ]) {
       expect(find.text(label), findsOneWidget);
     }
   });

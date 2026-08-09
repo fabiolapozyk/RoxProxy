@@ -33,11 +33,7 @@ class DataFormatting {
     final buf = StringBuffer();
     buf.write("curl -X ${exchange.method} '${esc(exchange.url)}'");
 
-    const skipHeaders = {
-      'proxy-connection',
-      'proxy-authorization',
-      'host',
-    };
+    const skipHeaders = {'proxy-connection', 'proxy-authorization', 'host'};
     for (final h in exchange.requestHeaders) {
       if (skipHeaders.contains(h.name.toLowerCase())) continue;
       buf.write(" \\\n  -H '${esc(h.name)}: ${esc(h.value)}'");

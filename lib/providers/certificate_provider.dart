@@ -21,17 +21,17 @@ class CaTrustState {
     bool? isInstalling,
     String? installError,
     bool clearError = false,
-  }) =>
-      CaTrustState(
-        initialized: initialized ?? this.initialized,
-        trusted: trusted ?? this.trusted,
-        isInstalling: isInstalling ?? this.isInstalling,
-        installError: clearError ? null : (installError ?? this.installError),
-      );
+  }) => CaTrustState(
+    initialized: initialized ?? this.initialized,
+    trusted: trusted ?? this.trusted,
+    isInstalling: isInstalling ?? this.isInstalling,
+    installError: clearError ? null : (installError ?? this.installError),
+  );
 }
 
-final caTrustProvider =
-    StateNotifierProvider<CaTrustNotifier, CaTrustState>((ref) {
+final caTrustProvider = StateNotifierProvider<CaTrustNotifier, CaTrustState>((
+  ref,
+) {
   return CaTrustNotifier(ref);
 });
 
@@ -56,14 +56,12 @@ class CaTrustNotifier extends StateNotifier<CaTrustState> {
   Future<void> install() async {
     state = state.copyWith(isInstalling: true, clearError: true);
     try {
-      final trusted =
-          await _ref.read(proxyChannelProvider).installCACertificate();
+      final trusted = await _ref
+          .read(proxyChannelProvider)
+          .installCACertificate();
       state = state.copyWith(trusted: trusted, isInstalling: false);
     } catch (e) {
-      state = state.copyWith(
-        isInstalling: false,
-        installError: e.toString(),
-      );
+      state = state.copyWith(isInstalling: false, installError: e.toString());
     }
   }
 

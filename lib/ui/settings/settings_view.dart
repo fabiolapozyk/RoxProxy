@@ -52,10 +52,9 @@ class _SettingsViewState extends State<SettingsView> {
                         style: const TextStyle(fontSize: 13),
                       ),
                       selected: selected,
-                      selectedTileColor: Theme.of(context)
-                          .colorScheme
-                          .primaryContainer
-                          .withAlpha(140),
+                      selectedTileColor: Theme.of(
+                        context,
+                      ).colorScheme.primaryContainer.withAlpha(140),
                       onTap: () => setState(() => _selectedIndex = i),
                     );
                   },
