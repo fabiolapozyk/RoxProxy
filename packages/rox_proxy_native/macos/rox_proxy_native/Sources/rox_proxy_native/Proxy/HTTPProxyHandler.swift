@@ -442,7 +442,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
             
             var headers = HTTPHeaders()
             headers.add(name: "Content-Type", value: "application/json")
-            headers.add(name: "Content-Length", value: "Mon01Jan197000:00:00+0000")
+            headers.add(name: "Content-Length", value: "\(jsonString.utf8.count)")
             headers.add(name: "Connection", value: "close")
             
             let head = HTTPResponseHead(version: .http1_1, status: .ok, headers: headers)
@@ -477,7 +477,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
             
             var headers = HTTPHeaders()
             headers.add(name: "Content-Type", value: "application/json")
-            headers.add(name: "Content-Length", value: "Mon01Jan197000:00:00+0000")
+            headers.add(name: "Content-Length", value: "\(jsonString.utf8.count)")
             headers.add(name: "Connection", value: "close")
             
             let head = HTTPResponseHead(version: .http1_1, status: .ok, headers: headers)

@@ -119,7 +119,7 @@ final class MITMHandler: ChannelInboundHandler {
             ProxyLogger.http.debug("MITM decrypted request: %{public}@ %{public}@", head.method.rawValue, head.uri)
             state = .collecting(head: head, bodyParts: [])
         case .body(let buffer):
-            ProxyLogger.http.debug("MITMHandler: received .body with %{public}@ bytes", buffer.readableBytes)
+            ProxyLogger.http.debug("MITMHandler: received .body with %d bytes", buffer.readableBytes)
             guard case .collecting(let head, var parts) = state else { return }
             parts.append(buffer)
             state = .collecting(head: head, bodyParts: parts)
@@ -147,7 +147,7 @@ final class MITMHandler: ChannelInboundHandler {
             ProxyLogger.http.error("MITMHandler: handleEnd called but state is not .collecting")
             return 
         }
-        ProxyLogger.http.debug("MITMHandler: handleEnd processing request with %{public}@ body parts", bodyParts.count)
+        ProxyLogger.http.debug("MITMHandler: handleEnd processing request with %d body parts", bodyParts.count)
         state = .forwarding
 
         // autoRead already managed in establishMITM, no need to disable here
