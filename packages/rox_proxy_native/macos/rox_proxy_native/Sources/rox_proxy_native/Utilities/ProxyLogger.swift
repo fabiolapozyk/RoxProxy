@@ -7,15 +7,22 @@ import os.log
 /// Logs are automatically:
 /// - Persisted by the system
 /// - Viewable in Console.app with subsystem filter "com.roxproxy"
-/// - Privacy-aware (sensitive data like hostnames is automatically redacted in public builds)
 /// - Thread-safe
 /// 
 /// Usage:
 /// ```swift
 /// ProxyLogger.proxy.info("Proxy started on port %d", port)
-/// ProxyLogger.tls.debug("TLS handshake completed for %{public}@", host)
+/// ProxyLogger.tls.debug("TLS handshake completed for %@", host)
 /// ProxyLogger.error.error("Connection failed: %@", error.localizedDescription)
 /// ```
+/// 
+/// Note on safety:
+/// The message is first rendered into a plain Swift `String` with `String(format:)`,
+/// then passed to `os_log` as a single `%@` argument. Passing the raw `[CVarArg]`
+/// array directly into `os_log`'s variadic splats is unreliable: numeric `%d`
+/// arguments print garbage and `%@` with an `Int` can crash the process.
+/// The os_log-specific `%{public}@` / `%{private}@` markers are translated to
+/// plain `%@` since the whole message is logged as one public string.
 
 /// Wrapper struct that provides convenient logging methods for a specific category
 struct CategoryLogger {
@@ -39,49 +46,49 @@ struct CategoryLogger {
         #endif
     }
     
-    /// Log a debug message
-    func debug(_ message: StaticString, _ args: CVarArg..., file: StaticString = #file, line: Int = #line) {
+    /// Renders the format message with the given arguments into a single String.
+    /// os_log-specific privacy markers (`%{public}@`, `%{private}@`) are not valid
+    /// `printf` specifiers, so they are translated to plain `%@`.
+    private func render(_ message: StaticString, _ args: [CVarArg]) -> String {
+        var format = String(describing: message)
+        format = format
+            .replacingOccurrences(of: "%{public}@", with: "%@")
+            .replacingOccurrences(of: "%{private}@", with: "%@")
+        return String(format: format, arguments: args)
+    }
+    
+    private func emit(_ message: StaticString, _ args: [CVarArg], type: OSLogType) {
+        let formatted = render(message, args)
         if #available(macOS 11.0, *) {
-            os_log(message, log: log, type: logType(.debug), args)
+            os_log("%{public}@", log: log, type: logType(type), formatted)
         } else {
-            print(String(format: message.description, arguments: args))
+            print(formatted)
         }
+    }
+    
+    /// Log a debug message
+    func debug(_ message: StaticString, _ args: CVarArg...) {
+        emit(message, args, type: .debug)
     }
     
     /// Log an info message
-    func info(_ message: StaticString, _ args: CVarArg..., file: StaticString = #file, line: Int = #line) {
-        if #available(macOS 11.0, *) {
-            os_log(message, log: log, type: logType(.info), args)
-        } else {
-            print(String(format: message.description, arguments: args))
-        }
+    func info(_ message: StaticString, _ args: CVarArg...) {
+        emit(message, args, type: .info)
     }
     
     /// Log a default message
-    func `default`(_ message: StaticString, _ args: CVarArg..., file: StaticString = #file, line: Int = #line) {
-        if #available(macOS 11.0, *) {
-            os_log(message, log: log, type: .default, args)
-        } else {
-            print(String(format: message.description, arguments: args))
-        }
+    func `default`(_ message: StaticString, _ args: CVarArg...) {
+        emit(message, args, type: .default)
     }
     
     /// Log an error message (always visible, high priority)
-    func error(_ message: StaticString, _ args: CVarArg..., file: StaticString = #file, line: Int = #line) {
-        if #available(macOS 11.0, *) {
-            os_log(message, log: log, type: .error, args)
-        } else {
-            fputs(String(format: "[ERROR] " + message.description, arguments: args) + "\n", stderr)
-        }
+    func error(_ message: StaticString, _ args: CVarArg...) {
+        emit(message, args, type: .error)
     }
     
     /// Log a fault message (critical errors that may cause crashes)
-    func fault(_ message: StaticString, _ args: CVarArg..., file: StaticString = #file, line: Int = #line) {
-        if #available(macOS 11.0, *) {
-            os_log(message, log: log, type: .fault, args)
-        } else {
-            fputs(String(format: "[FAULT] " + message.description, arguments: args) + "\n", stderr)
-        }
+    func fault(_ message: StaticString, _ args: CVarArg...) {
+        emit(message, args, type: .fault)
     }
 }
 
