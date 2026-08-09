@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../map_local/map_local_panel.dart';
 import 'certificate_setup_view.dart';
 import 'domain_list_view.dart';
 import 'general_settings.dart';
 
+/// Settings window with a macOS-style sidebar navigation.
+/// Each future feature gets a new section here instead of a toolbar icon.
 class SettingsView extends StatefulWidget {
   const SettingsView({super.key});
 
@@ -11,21 +14,15 @@ class SettingsView extends StatefulWidget {
   State<SettingsView> createState() => _SettingsViewState();
 }
 
-class _SettingsViewState extends State<SettingsView>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+class _SettingsViewState extends State<SettingsView> {
+  int _selectedIndex = 0;
 
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 3, vsync: this);
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
+  static const _sections = [
+    (icon: Icons.settings_outlined, label: 'General'),
+    (icon: Icons.lock_outlined, label: 'HTTPS Domains'),
+    (icon: Icons.verified_user_outlined, label: 'Certificate'),
+    (icon: Icons.source_outlined, label: 'Map Local'),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -34,24 +31,46 @@ class _SettingsViewState extends State<SettingsView>
       children: [
         _Header(onClose: () => Navigator.of(context).pop()),
         const Divider(height: 1),
-        TabBar(
-          controller: _tabController,
-          labelStyle:
-              const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
-          tabs: const [
-            Tab(text: 'General'),
-            Tab(text: 'HTTPS Domains'),
-            Tab(text: 'Certificate'),
-          ],
-        ),
-        const Divider(height: 1),
         Expanded(
-          child: TabBarView(
-            controller: _tabController,
-            children: const [
-              GeneralSettings(),
-              DomainListView(),
-              CertificateSetupView(),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Sidebar
+              Container(
+                width: 180,
+                color: Theme.of(context).colorScheme.surfaceContainerLow,
+                child: ListView.builder(
+                  itemCount: _sections.length,
+                  itemBuilder: (context, i) {
+                    final section = _sections[i];
+                    final selected = i == _selectedIndex;
+                    return ListTile(
+                      dense: true,
+                      leading: Icon(section.icon, size: 18),
+                      title: Text(
+                        section.label,
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                      selected: selected,
+                      selectedTileColor: Theme.of(context)
+                          .colorScheme
+                          .primaryContainer
+                          .withAlpha(140),
+                      onTap: () => setState(() => _selectedIndex = i),
+                    );
+                  },
+                ),
+              ),
+              const VerticalDivider(width: 1),
+              // Content
+              Expanded(
+                child: switch (_selectedIndex) {
+                  0 => const GeneralSettings(),
+                  1 => const DomainListView(),
+                  2 => const CertificateSetupView(),
+                  _ => const MapLocalRuleManager(),
+                },
+              ),
             ],
           ),
         ),

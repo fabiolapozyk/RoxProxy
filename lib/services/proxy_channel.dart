@@ -1,10 +1,10 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 
 import '../models/captured_exchange.dart';
 import '../models/domain_rule.dart';
+import '../models/map_local_rule.dart';
 
 class ExchangeEvent {
   final String type; // 'new' or 'update'
@@ -44,10 +44,12 @@ class ProxyChannel {
     required int connectionTimeoutSeconds,
     required bool setSystemProxy,
     required bool httpsInterceptionEnabled,
+    List<MapLocalRule> mapLocalRules = const [],
   }) async {
     final result = await _method.invokeMethod<Map>('startProxy', {
       'port': port,
       'domainRules': domainRules.map((r) => r.toMap()).toList(),
+      'mapLocalRules': mapLocalRules.map((r) => r.toMap()).toList(),
       'connectionTimeoutSeconds': connectionTimeoutSeconds,
       'setSystemProxy': setSystemProxy,
       'httpsInterceptionEnabled': httpsInterceptionEnabled,

@@ -81,10 +81,16 @@ final class ProxyMethodHandler: NSObject {
 
         let httpsInterceptionEnabled = args["httpsInterceptionEnabled"] as? Bool ?? true
         let setSystemProxy = args["setSystemProxy"] as? Bool ?? true
-        
+
+        // Parse Map Local rules from Dart
+        ProxyLogger.map.debug("Parsing %d Map Local rules", (args["mapLocalRules"] as? [[String: Any]])?.count ?? 0)
+        let mapLocalRules: [MapLocalRule] = (args["mapLocalRules"] as? [[String: Any]] ?? []).compactMap {
+            MapLocalRule.fromDictionary($0)
+        }
+
         ProxyLogger.proxy.debug(
             "%{public}@",
-            "Proxy configuration: port=\(port), timeout=\(timeout), https=\(httpsInterceptionEnabled ? "yes" : "no"), systemProxy=\(setSystemProxy ? "yes" : "no")"
+            "Proxy configuration: port=\(port), timeout=\(timeout), https=\(httpsInterceptionEnabled ? "yes" : "no"), systemProxy=\(setSystemProxy ? "yes" : "no"), mapLocalRules=\(mapLocalRules.count)"
         )
 
         let store = BridgeSessionStore(streamHandler: streamHandler, bodyStore: bodyStore)
@@ -92,6 +98,7 @@ final class ProxyMethodHandler: NSObject {
             port: port,
             store: store,
             domainRules: domainRules,
+            mapLocalRules: mapLocalRules,
             connectionTimeoutSeconds: timeout,
             certificateAuthority: certificateAuthority,
             domainCertCache: domainCertCache,

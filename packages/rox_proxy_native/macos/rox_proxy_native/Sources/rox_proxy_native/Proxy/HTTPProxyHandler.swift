@@ -35,19 +35,22 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
     let domainCertCache: DomainCertificateCache?
     let domainRules: [DomainRule]
     let httpsInterceptionEnabled: Bool
+    let mapLocalMatcher: MapLocalMatcher?
 
     init(
         store: BridgeSessionStore,
         certificateAuthority: CertificateAuthority? = nil,
         domainCertCache: DomainCertificateCache? = nil,
         domainRules: [DomainRule] = [],
-        httpsInterceptionEnabled: Bool = true
+        httpsInterceptionEnabled: Bool = true,
+        mapLocalMatcher: MapLocalMatcher? = nil
     ) {
         self.store = store
         self.certificateAuthority = certificateAuthority
         self.domainCertCache = domainCertCache
         self.domainRules = domainRules
         self.httpsInterceptionEnabled = httpsInterceptionEnabled
+        self.mapLocalMatcher = mapLocalMatcher
     }
 
     // MARK: - ChannelInboundHandler
@@ -171,6 +174,20 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
         let store = self.store
         Task { @MainActor in store.append(exchange) }
 
+        // Map Local interception — serve a local file instead of forwarding.
+        if let matcher = mapLocalMatcher, !matcher.isEmpty {
+            let matchPath = URL(string: head.uri)?.path ?? "/"
+            if let rule = matcher.firstMatch(method: head.method.rawValue, host: target.host, path: matchPath) {
+                ProxyLogger.map.info("Map Local: rule %{public}@ matches %{public}@ %{public}@", rule.pathPattern, head.method.rawValue, head.uri)
+                MapLocalHandler.serve(rule: rule, context: context, exchange: exchange, store: store) { [weak self] in
+                    guard let self else { return }
+                    _ = context.channel.setOption(ChannelOptions.autoRead, value: true)
+                    self.state = .idle
+                }
+                return
+            }
+        }
+
         // Build outbound request head (absolute URI → relative)
         var outHead = head
         outHead.uri = target.relativePath
@@ -230,10 +247,18 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
         // Increment CONNECT request counter
         ProxyMetrics.shared.incrementConnectRequests()
 
-        // Decide: MITM (TLS interception) or blind tunnel
+        // Decide: MITM (TLS interception) or blind tunnel.
+        // Map Local rules can only apply to HTTPS after decryption, so any
+        // host with a matching rule forces MITM interception.
+        let hasMapLocalRule = mapLocalMatcher?.hasPossibleMatch(host: target.host) ?? false
+        let hasDomainRule = domainRules.contains(where: { $0.matches(host: target.host) })
         let shouldMITM = httpsInterceptionEnabled
             && domainCertCache != nil
-            && domainRules.contains(where: { $0.matches(host: target.host) })
+            && (hasDomainRule || hasMapLocalRule)
+
+        if hasMapLocalRule && !httpsInterceptionEnabled {
+            ProxyLogger.map.default("Map Local rule exists for %{public}@ but HTTPS interception is disabled — rule will not apply", target.host)
+        }
 
         if shouldMITM {
             ProxyLogger.tls.info("MITM decryption enabled for %{public}@", target.host)
@@ -375,7 +400,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
         ProxyLogger.tls.info("MITM TLS interception setup complete for %{public}@:%d", host, port)
         let sslHandler   = NIOSSLServerHandler(context: sslContext)
         let setupHandler = MITMSetupHandler(
-            host: host, port: port, store: store
+            host: host, port: port, store: store, mapLocalMatcher: mapLocalMatcher
         )
 
         // Send 200 OK FIRST while HTTP encoder is still in pipeline

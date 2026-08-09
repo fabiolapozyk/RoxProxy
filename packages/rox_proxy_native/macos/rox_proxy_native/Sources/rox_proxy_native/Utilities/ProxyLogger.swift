@@ -125,4 +125,7 @@ final class ProxyLogger {
 
     /// Replay functionality
     static let replay = CategoryLogger(log: OSLog(subsystem: subsystem, category: "replay"))
+
+    /// Map Local rule matching and file serving
+    static let map = CategoryLogger(log: OSLog(subsystem: subsystem, category: "mapLocal"))
 }

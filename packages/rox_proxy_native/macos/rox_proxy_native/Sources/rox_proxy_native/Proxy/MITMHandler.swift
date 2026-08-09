@@ -17,11 +17,13 @@ final class MITMSetupHandler: ChannelInboundHandler, RemovableChannelHandler {
     let host: String
     let port: Int
     let store: BridgeSessionStore
+    let mapLocalMatcher: MapLocalMatcher?
 
-    init(host: String, port: Int, store: BridgeSessionStore) {
+    init(host: String, port: Int, store: BridgeSessionStore, mapLocalMatcher: MapLocalMatcher? = nil) {
         self.host = host
         self.port = port
         self.store = store
+        self.mapLocalMatcher = mapLocalMatcher
     }
 
     func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
@@ -42,6 +44,7 @@ final class MITMSetupHandler: ChannelInboundHandler, RemovableChannelHandler {
         let host = self.host
         let port = self.port
         let store = self.store
+        let mapLocalMatcher = self.mapLocalMatcher
 
         // Insert handlers after self (i.e. at .last), then remove self.
         // Pipeline after upgrade: NIOSSLServerHandler → HTTPRequestDecoder
@@ -60,7 +63,7 @@ final class MITMSetupHandler: ChannelInboundHandler, RemovableChannelHandler {
         }
         .flatMap {
             pipeline.addHandler(
-                MITMHandler(host: host, port: port, store: store),
+                MITMHandler(host: host, port: port, store: store, mapLocalMatcher: mapLocalMatcher),
                 name: "MITMHandler",
                 position: .last
             )
@@ -93,11 +96,13 @@ final class MITMHandler: ChannelInboundHandler {
     let host: String
     let port: Int
     let store: BridgeSessionStore
+    let mapLocalMatcher: MapLocalMatcher?
 
-    init(host: String, port: Int, store: BridgeSessionStore) {
+    init(host: String, port: Int, store: BridgeSessionStore, mapLocalMatcher: MapLocalMatcher? = nil) {
         self.host = host
         self.port = port
         self.store = store
+        self.mapLocalMatcher = mapLocalMatcher
     }
 
     // MARK: - ChannelInboundHandler
@@ -169,6 +174,19 @@ final class MITMHandler: ChannelInboundHandler {
 
         let store = self.store
         Task { @MainActor in store.append(exchange) }
+
+        // Map Local interception — serve a local file instead of forwarding.
+        if let matcher = mapLocalMatcher, !matcher.isEmpty {
+            let matchPath = URL(string: head.uri)?.path ?? "/"
+            if let rule = matcher.firstMatch(method: head.method.rawValue, host: host, path: matchPath) {
+                ProxyLogger.map.info("Map Local (HTTPS): rule %{public}@ matches %{public}@ %{public}@", rule.pathPattern, head.method.rawValue, head.uri)
+                MapLocalHandler.serve(rule: rule, context: context, exchange: exchange, store: store) { [weak self] in
+                    guard let self else { return }
+                    self.state = .idle
+                }
+                return
+            }
+        }
 
         // Normalise URI to relative path (some clients send absolute URIs)
         var outHead = head
