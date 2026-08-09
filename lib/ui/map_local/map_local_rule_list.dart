@@ -27,6 +27,7 @@ class MapLocalRuleList extends ConsumerWidget {
 
     return ReorderableListView.builder(
       itemCount: rules.length,
+      // ignore: deprecated_member_use
       onReorder: notifier.reorder,
       buildDefaultDragHandles: false,
       itemBuilder: (context, i) {
