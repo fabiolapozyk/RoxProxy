@@ -18,9 +18,15 @@ final mapLocalProvider =
 class MapLocalNotifier extends StateNotifier<List<MapLocalRule>> {
   final MapLocalService _service;
   final Ref _ref;
+  Future<void>? _loadFuture;
 
   MapLocalNotifier(this._service, this._ref) : super(const []) {
-    _load();
+    _loadFuture = _load();
+  }
+
+  /// Resolves once rules have been loaded from disk (startup race guard).
+  Future<void> ensureLoaded() async {
+    await _loadFuture;
   }
 
   Future<void> _load() async {

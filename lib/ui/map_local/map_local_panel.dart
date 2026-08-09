@@ -10,9 +10,10 @@ import '../../providers/map_local_provider.dart';
 import 'map_local_rule_edit.dart';
 import 'map_local_rule_list.dart';
 
-/// Full Map Local panel shown in a dialog from the main toolbar.
-class MapLocalPanel extends ConsumerWidget {
-  const MapLocalPanel({super.key});
+/// Map Local rule manager shown inside the Settings sidebar.
+/// Contains the Add / Import / Export toolbar and the reorderable rule list.
+class MapLocalRuleManager extends ConsumerWidget {
+  const MapLocalRuleManager({super.key});
 
   Future<void> _addRule(BuildContext context, WidgetRef ref) async {
     final created = await showDialog<MapLocalRule>(
@@ -87,8 +88,7 @@ class MapLocalPanel extends ConsumerWidget {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message, style: const TextStyle(fontSize: 13)),
-        backgroundColor:
-            error ? Theme.of(context).colorScheme.error : null,
+        backgroundColor: error ? Theme.of(context).colorScheme.error : null,
         duration: const Duration(seconds: 3),
       ),
     );
@@ -96,29 +96,56 @@ class MapLocalPanel extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final rules = ref.watch(mapLocalProvider);
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _Header(
-          ruleCount: rules.length,
-          onAdd: () => _addRule(context, ref),
-          onImport: () => _import(context, ref),
-          onExport: () => _export(context, ref),
-          onClose: () => Navigator.of(context).pop(),
-        ),
-        const Divider(height: 1),
-        const Padding(
-          padding: EdgeInsets.fromLTRB(12, 8, 12, 0),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
           child: Text(
             'Requests matching a rule are answered with the local file '
             'instead of reaching the server. Rules are evaluated top-down; '
             'the first match wins. Changes apply when the proxy is restarted.',
-            style: TextStyle(fontSize: 11, color: Colors.grey),
+            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
           ),
         ),
         const SizedBox(height: 4),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 0, 8, 0),
+          child: Row(
+            children: [
+              const Spacer(),
+              TextButton.icon(
+                onPressed: () => _export(context, ref),
+                icon: const Icon(Icons.file_upload_outlined, size: 16),
+                label: const Text('Export'),
+                style: TextButton.styleFrom(
+                  textStyle: const TextStyle(fontSize: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                ),
+              ),
+              const SizedBox(width: 4),
+              TextButton.icon(
+                onPressed: () => _import(context, ref),
+                icon: const Icon(Icons.file_download_outlined, size: 16),
+                label: const Text('Import'),
+                style: TextButton.styleFrom(
+                  textStyle: const TextStyle(fontSize: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                ),
+              ),
+              const SizedBox(width: 4),
+              ElevatedButton.icon(
+                onPressed: () => _addRule(context, ref),
+                icon: const Icon(Icons.add, size: 16),
+                label: const Text('Add rule'),
+                style: ElevatedButton.styleFrom(
+                  textStyle: const TextStyle(fontSize: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                ),
+              ),
+            ],
+          ),
+        ),
         const Divider(height: 1),
         Expanded(
           child: MapLocalRuleList(
@@ -126,80 +153,6 @@ class MapLocalPanel extends ConsumerWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _Header extends StatelessWidget {
-  final int ruleCount;
-  final VoidCallback onAdd;
-  final VoidCallback onImport;
-  final VoidCallback onExport;
-  final VoidCallback onClose;
-
-  const _Header({
-    required this.ruleCount,
-    required this.onAdd,
-    required this.onImport,
-    required this.onExport,
-    required this.onClose,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 44,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Row(
-        children: [
-          const Text(
-            'Map Local',
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            '$ruleCount rule${ruleCount == 1 ? '' : 's'}',
-            style: const TextStyle(fontSize: 11, color: Colors.grey),
-          ),
-          const Spacer(),
-          TextButton.icon(
-            onPressed: onExport,
-            icon: const Icon(Icons.file_upload_outlined, size: 16),
-            label: const Text('Export'),
-            style: TextButton.styleFrom(
-              textStyle: const TextStyle(fontSize: 12),
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-            ),
-          ),
-          const SizedBox(width: 4),
-          TextButton.icon(
-            onPressed: onImport,
-            icon: const Icon(Icons.file_download_outlined, size: 16),
-            label: const Text('Import'),
-            style: TextButton.styleFrom(
-              textStyle: const TextStyle(fontSize: 12),
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-            ),
-          ),
-          const SizedBox(width: 4),
-          ElevatedButton.icon(
-            onPressed: onAdd,
-            icon: const Icon(Icons.add, size: 16),
-            label: const Text('Add rule'),
-            style: ElevatedButton.styleFrom(
-              textStyle: const TextStyle(fontSize: 12),
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-            ),
-          ),
-          const SizedBox(width: 4),
-          IconButton(
-            icon: const Icon(Icons.close, size: 18),
-            onPressed: onClose,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-          ),
-        ],
-      ),
     );
   }
 }

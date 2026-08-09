@@ -20,10 +20,14 @@ class ProxyStateNotifier extends StateNotifier<ProxyState> {
     state = const ProxyStarting();
     try {
       final channel = _ref.read(proxyChannelProvider);
+      // Wait for Map Local rules to finish loading from disk, otherwise an
+      // empty list is sent to the native proxy on a fast startup/auto-start.
+      await _ref.read(mapLocalProvider.notifier).ensureLoaded();
+      final mapLocalRules = _ref.read(mapLocalProvider);
       final port = await channel.startProxy(
         port: settings.port,
         domainRules: settings.domainRules,
-        mapLocalRules: _ref.read(mapLocalProvider),
+        mapLocalRules: mapLocalRules,
         connectionTimeoutSeconds: settings.connectionTimeoutSeconds,
         setSystemProxy: settings.setSystemProxy,
         httpsInterceptionEnabled: settings.httpsInterceptionEnabled,

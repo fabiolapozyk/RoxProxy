@@ -28,6 +28,7 @@ class MapLocalRuleList extends ConsumerWidget {
     return ReorderableListView.builder(
       itemCount: rules.length,
       onReorder: notifier.reorder,
+      buildDefaultDragHandles: false,
       itemBuilder: (context, i) {
         final rule = rules[i];
         return _RuleTile(

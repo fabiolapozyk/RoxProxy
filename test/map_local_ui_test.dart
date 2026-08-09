@@ -25,7 +25,7 @@ void main() {
       ProviderScope(
         overrides: [mapLocalServiceProvider.overrideWithValue(service)],
         child: const MaterialApp(
-          home: Scaffold(body: MapLocalPanel()),
+          home: Scaffold(body: MapLocalRuleManager()),
         ),
       ),
     );
@@ -36,7 +36,6 @@ void main() {
     await pumpPanel(tester);
     expect(find.text('No Map Local rules.\nAdd a rule to start serving local files.'),
         findsOneWidget);
-    expect(find.text('0 rules'), findsOneWidget);
   });
 
   testWidgets('adds a rule through the dialog', (tester) async {
@@ -55,7 +54,6 @@ void main() {
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
 
-    expect(find.text('1 rule'), findsOneWidget);
     expect(find.text('Mock users'), findsOneWidget);
     expect(find.text('#1'), findsOneWidget);
     expect(find.textContaining('/api/users'), findsWidgets);
@@ -99,12 +97,13 @@ void main() {
         find.widgetWithText(TextField, 'Path pattern'), '/api/del');
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
-    expect(find.text('1 rule'), findsOneWidget);
+    expect(find.textContaining('/api/del'), findsWidgets);
 
     await tester.tap(find.byIcon(Icons.delete_outline));
     await tester.pumpAndSettle();
 
-    expect(find.text('0 rules'), findsOneWidget);
+    expect(find.text('No Map Local rules.\nAdd a rule to start serving local files.'),
+        findsOneWidget);
     expect(await service.load(), isEmpty);
   });
 }

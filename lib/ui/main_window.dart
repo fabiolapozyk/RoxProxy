@@ -12,7 +12,6 @@ import '../providers/settings_provider.dart';
 import 'components/ca_warning_banner.dart';
 import 'components/status_bar.dart';
 import 'detail/detail_view.dart';
-import 'map_local/map_local_panel.dart';
 import 'request_list/request_list_view.dart';
 import 'settings/settings_view.dart';
 
@@ -93,20 +92,11 @@ class _MainWindowState extends ConsumerState<MainWindow> {
       '${r.httpMethod}:${r.filePath}:${r.statusCode}:${r.contentType}:'
       '${r.isCaseSensitive}:${r.useRegex}:${r.customHeaders}';
 
-  void _openMapLocal() {
-    showDialog(
-      context: context,
-      builder: (_) => const Dialog(
-        child: SizedBox(width: 780, height: 560, child: MapLocalPanel()),
-      ),
-    );
-  }
-
   void _openSettings() {
     showDialog(
       context: context,
       builder: (_) => const Dialog(
-        child: SizedBox(width: 520, height: 480, child: SettingsView()),
+        child: SizedBox(width: 760, height: 560, child: SettingsView()),
       ),
     );
   }
@@ -237,13 +227,6 @@ class _MainWindowState extends ConsumerState<MainWindow> {
           label: 'Clear',
           enabled: !exchangesEmpty,
           onPressed: () => ref.read(exchangeListProvider.notifier).clear(),
-        ),
-        const SizedBox(width: 4),
-        // Map Local
-        _ToolbarButton(
-          icon: Icons.source_outlined,
-          label: 'Map Local',
-          onPressed: _openMapLocal,
         ),
         const SizedBox(width: 4),
         // Settings

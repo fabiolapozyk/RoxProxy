@@ -3,14 +3,17 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/captured_exchange.dart';
+import '../../models/map_local_rule.dart';
 import '../../models/replay_request.dart';
 import '../../providers/exchange_provider.dart';
+import '../../providers/map_local_provider.dart';
 import '../../providers/proxy_channel_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../utils/data_formatting.dart';
 import '../components/https_indicator.dart';
 import '../components/method_badge.dart';
 import '../components/status_indicator.dart';
+import '../map_local/map_local_rule_edit.dart';
 import '../replay_dialog.dart';
 
 // MARK: - Column widths
@@ -252,6 +255,36 @@ class _ExchangeRow extends ConsumerWidget {
   bool get _canReplay => exchange.state == ExchangeState.completed && 
                          !(exchange.isHTTPS && !exchange.isMITMDecrypted && exchange.method == 'CONNECT');
 
+  bool get _canMapLocal => _canReplay;
+
+  /// Opens the Map Local rule editor pre-filled with this exchange's
+  /// host/path/method, so the user can mock it with a local file.
+  Future<void> _showMapLocalDialog(BuildContext context, WidgetRef ref) async {
+    final cleanPath = Uri.tryParse(exchange.path)?.path ?? exchange.path;
+    final initial = MapLocalRule(
+      name: '${exchange.method} ${exchange.host}',
+      hostPattern: exchange.host,
+      pathPattern: cleanPath.isEmpty ? '**' : cleanPath,
+      httpMethod: exchange.method == 'CONNECT' ? 'ANY' : exchange.method,
+    );
+    final created = await showDialog<MapLocalRule>(
+      context: context,
+      builder: (_) => MapLocalRuleEditDialog(initial: initial),
+    );
+    if (created == null) return;
+    ref.read(mapLocalProvider.notifier).addRule(created);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Map Local rule added — proxy will restart to apply it'),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+          margin: EdgeInsets.only(bottom: 80.0, left: 10.0, right: 10.0),
+        ),
+      );
+    }
+  }
+
   Future<void> _copyAsCurl(BuildContext context, WidgetRef ref) async {
     var bodyBytes = exchange.cachedRequestBody;
     if (bodyBytes == null && exchange.requestBodyRef != null) {
@@ -334,6 +367,11 @@ class _ExchangeRow extends ConsumerWidget {
             value: 'replay',
             child: Text('Edit and Replay', style: TextStyle(fontSize: 13)),
           ),
+        if (_canMapLocal)
+          const PopupMenuItem<String>(
+            value: 'map_local',
+            child: Text('Mock with local file…', style: TextStyle(fontSize: 13)),
+          ),
       ],
     );
 
@@ -352,6 +390,8 @@ class _ExchangeRow extends ConsumerWidget {
       );
     } else if (result == 'replay') {
       await _showReplayDialog(context, ref);
+    } else if (result == 'map_local') {
+      await _showMapLocalDialog(context, ref);
     }
   }
 
