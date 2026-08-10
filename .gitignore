@@ -31,6 +31,8 @@ macos/Podfile.lock
 # IDE
 .idea/
 *.xcworkspace
+!macos/Runner.xcworkspace/
+!macos/Runner.xcworkspace/**
 
 # Claude specific files
 .claude/settings.local.json
