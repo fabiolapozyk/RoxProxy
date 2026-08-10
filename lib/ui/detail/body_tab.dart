@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,6 +8,11 @@ import '../../providers/proxy_channel_provider.dart';
 import '../../utils/body_renderer.dart';
 
 enum BodySide { request, response }
+
+const int _kInlineRenderBytesLimit = 32 * 1024;
+
+RenderMode _renderBodyInBackground((Uint8List, String?) args) =>
+    BodyRenderer.render(data: args.$1, contentType: args.$2);
 
 class BodyTab extends ConsumerStatefulWidget {
   final CapturedExchange exchange;
@@ -27,6 +33,8 @@ class _BodyTabState extends ConsumerState<BodyTab> {
   String? _error;
   String _searchQuery = '';
   bool _showSearchBar = false;
+  RenderMode? _mode;
+  bool _rendering = false;
   final FocusNode _focusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
   final GlobalKey<_BodySearchBarState> _searchBarKey = GlobalKey();
@@ -95,15 +103,30 @@ class _BodyTabState extends ConsumerState<BodyTab> {
   @override
   void didUpdateWidget(BodyTab old) {
     super.didUpdateWidget(old);
-    if (old.exchange.id != widget.exchange.id) {
+    final exchangeChanged = old.exchange.id != widget.exchange.id;
+    final oldBytes = widget.side == BodySide.request
+        ? old.exchange.cachedRequestBody
+        : old.exchange.cachedResponseBody;
+    final bytesChanged = !identical(oldBytes, _cachedBytes);
+
+    if (exchangeChanged) {
       setState(() {
         _error = null;
         // Reset search state when exchange changes
         _showSearchBar = false;
         _searchQuery = '';
+        _mode = null;
+        _rendering = false;
       });
-      _fetchIfNeeded();
+    } else if (bytesChanged) {
+      setState(() {
+        _mode = null;
+        _rendering = false;
+      });
+    } else {
+      return;
     }
+    _fetchIfNeeded();
   }
 
   String? get _ref => widget.side == BodySide.request
@@ -151,52 +174,78 @@ class _BodyTabState extends ConsumerState<BodyTab> {
   }
 
   Future<void> _fetchIfNeeded() async {
-    if (_cachedBytes != null) return;
-    final ref = _ref;
-    if (ref == null) return;
+    if (_cachedBytes == null && _ref != null) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
 
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-
-    try {
-      final channel = this.ref.read(proxyChannelProvider);
-      Uint8List? bytes = await channel.fetchBody(ref);
-      if (bytes == null) {
-        setState(() => _loading = false);
-        return;
-      }
-      // Decompress if needed
-      final encoding = _contentEncoding;
-      if (encoding != null &&
-          (encoding.contains('gzip') ||
-              encoding.contains('deflate') ||
-              encoding.contains('br'))) {
-        final decompressed = await channel.decompressBody(bytes, encoding);
-        if (decompressed != null) {
-          bytes = decompressed;
+      try {
+        final channel = ref.read(proxyChannelProvider);
+        Uint8List? bytes = await channel.fetchBody(_ref!);
+        if (bytes == null) {
+          setState(() => _loading = false);
         } else {
-          // Se la decompressione fallisce, mostra un messaggio di errore
-          if (encoding.contains('br')) {
-            setState(() {
-              _loading = false;
-              _error =
-                  'Brotli compression is not supported. Response cannot be displayed.';
-            });
-            return;
+          // Decompress if needed
+          final encoding = _contentEncoding;
+          if (encoding != null &&
+              (encoding.contains('gzip') ||
+                  encoding.contains('deflate') ||
+                  encoding.contains('br'))) {
+            final decompressed = await channel.decompressBody(bytes, encoding);
+            if (decompressed != null) {
+              bytes = decompressed;
+            } else {
+              // Se la decompressione fallisce, mostra un messaggio di errore
+              if (encoding.contains('br')) {
+                setState(() {
+                  _loading = false;
+                  _error =
+                      'Brotli compression is not supported. Response cannot be displayed.';
+                });
+                return;
+              }
+            }
           }
+          _cacheBytes(bytes);
+          if (mounted) setState(() => _loading = false);
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _loading = false;
+            _error = e.toString();
+          });
         }
       }
-      _cacheBytes(bytes);
-      if (mounted) setState(() => _loading = false);
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-          _error = e.toString();
-        });
+    }
+    _startRender();
+  }
+
+  Future<void> _startRender() async {
+    final bytes = _cachedBytes;
+    if (bytes == null || _mode != null || _rendering) return;
+    setState(() => _rendering = true);
+    try {
+      final contentType = _contentType;
+      final RenderMode mode;
+      if (bytes.length <= _kInlineRenderBytesLimit) {
+        mode = BodyRenderer.render(data: bytes, contentType: contentType);
+      } else {
+        mode = await compute(_renderBodyInBackground, (bytes, contentType));
       }
+      if (!mounted) return;
+      if (identical(bytes, _cachedBytes)) {
+        setState(() {
+          _mode = mode;
+          _rendering = false;
+        });
+      } else {
+        setState(() => _rendering = false);
+        _startRender();
+      }
+    } catch (_) {
+      if (mounted) setState(() => _rendering = false);
     }
   }
 
@@ -221,6 +270,12 @@ class _BodyTabState extends ConsumerState<BodyTab> {
         child: Text('No body', style: TextStyle(color: Colors.grey)),
       );
     }
+    if (_mode == null) {
+      if (!_rendering) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _startRender());
+      }
+      return const Center(child: CircularProgressIndicator());
+    }
     return Focus(
       autofocus: true,
       onKeyEvent: _handleKeyEvent,
@@ -237,8 +292,7 @@ class _BodyTabState extends ConsumerState<BodyTab> {
             ),
           Expanded(
             child: BodyContent(
-              bytes: bytes,
-              contentType: _contentType,
+              mode: _mode!,
               searchQuery: _showSearchBar ? _searchQuery : '',
               scrollController: _scrollController,
             ),
@@ -250,23 +304,19 @@ class _BodyTabState extends ConsumerState<BodyTab> {
 }
 
 class BodyContent extends StatelessWidget {
-  final Uint8List bytes;
-  final String? contentType;
+  final RenderMode mode;
   final String searchQuery;
   final ScrollController? scrollController;
 
   const BodyContent({
     super.key,
-    required this.bytes,
-    this.contentType,
+    required this.mode,
     this.searchQuery = '',
     this.scrollController,
   });
 
   @override
   Widget build(BuildContext context) {
-    final mode = BodyRenderer.render(data: bytes, contentType: contentType);
-
     return switch (mode) {
       RenderEmpty() => const Center(
         child: Text('Empty body', style: TextStyle(color: Colors.grey)),
@@ -277,8 +327,8 @@ class BodyContent extends StatelessWidget {
           child: Image.memory(bytes),
         ),
       ),
-      RenderJson(:final text) => _JsonHighlightedText(
-        text,
+      RenderJson(:final lines) => _JsonLineList(
+        lines,
         searchQuery: searchQuery,
         scrollController: scrollController,
       ),
@@ -474,12 +524,12 @@ class _MonospaceText extends StatelessWidget {
   }
 }
 
-class _JsonHighlightedText extends StatelessWidget {
-  final String json;
+class _JsonLineList extends StatelessWidget {
+  final List<JsonLine> lines;
   final String searchQuery;
   final ScrollController? scrollController;
-  const _JsonHighlightedText(
-    this.json, {
+  const _JsonLineList(
+    this.lines, {
     this.searchQuery = '',
     this.scrollController,
   });
@@ -487,256 +537,92 @@ class _JsonHighlightedText extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    if (searchQuery.isEmpty) {
-      return SelectionArea(
-        child: SingleChildScrollView(
-          controller: scrollController,
-          padding: const EdgeInsets.all(12),
-          child: SelectableText.rich(
+    final search = searchQuery.isEmpty
+        ? null
+        : RegExp(searchQuery, caseSensitive: false);
+    return SelectionArea(
+      child: ListView.builder(
+        controller: scrollController,
+        padding: const EdgeInsets.all(12),
+        itemCount: lines.length,
+        itemBuilder: (context, index) {
+          return Text.rich(
             TextSpan(
               style: const TextStyle(
                 fontSize: 12,
                 fontFamily: 'monospace',
                 height: 1.5,
               ),
-              children: _buildSpans(json, isDark),
+              children: _spansForLine(lines[index], isDark, search),
             ),
-          ),
-        ),
-      );
-    }
-
-    return SelectionArea(
-      child: SingleChildScrollView(
-        controller: scrollController,
-        padding: const EdgeInsets.all(12),
-        child: SelectableText.rich(
-          TextSpan(
-            style: const TextStyle(
-              fontSize: 12,
-              fontFamily: 'monospace',
-              height: 1.5,
-            ),
-            children: _buildSpansWithSearch(json, isDark, searchQuery),
-          ),
-        ),
+          );
+        },
       ),
     );
   }
 
-  static List<TextSpan> _buildSpans(String source, bool isDark) {
-    // VS Code–inspired palette, dark and light variants
-    final keyColor = isDark ? const Color(0xFF9CDCFE) : const Color(0xFF0451A5);
-    final stringColor = isDark
-        ? const Color(0xFFCE9178)
-        : const Color(0xFFA31515);
-    final numberColor = isDark
-        ? const Color(0xFFB5CEA8)
-        : const Color(0xFF098658);
-    final boolNullColor = isDark
-        ? const Color(0xFF569CD6)
-        : const Color(0xFF0000FF);
-    final defaultColor = isDark
-        ? const Color(0xFFD4D4D4)
-        : const Color(0xFF1E1E1E);
-
-    final re = RegExp(
-      r'("(?:[^"\\]|\\.)*")' // group 1 – string
-      r'|(-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)' // group 2 – number
-      r'|(true|false|null)' // group 3 – keyword
-      r'|([{}\[\],:])' // group 4 – punctuation
-      r'|(\s+)' // group 5 – whitespace
-      r'|(.)', // group 6 – fallback
-      dotAll: true,
-    );
-
+  static List<TextSpan> _spansForLine(
+    JsonLine line,
+    bool isDark,
+    RegExp? search,
+  ) {
     final spans = <TextSpan>[];
-    for (final m in re.allMatches(source)) {
-      if (m.group(1) != null) {
-        // Determine key vs string value: look ahead for ':'
-        var i = m.end;
-        while (i < source.length && (source[i] == ' ' || source[i] == '\t')) {
-          i++;
+    for (final segment in line.segments) {
+      final baseStyle = TextStyle(color: _colorFor(segment.kind, isDark));
+      if (search == null) {
+        spans.add(TextSpan(text: segment.text, style: baseStyle));
+        continue;
+      }
+      final matches = search.allMatches(segment.text);
+      if (matches.isEmpty) {
+        spans.add(TextSpan(text: segment.text, style: baseStyle));
+        continue;
+      }
+      int lastEnd = 0;
+      for (final match in matches) {
+        if (match.start > lastEnd) {
+          spans.add(
+            TextSpan(
+              text: segment.text.substring(lastEnd, match.start),
+              style: baseStyle,
+            ),
+          );
         }
-        final isKey = i < source.length && source[i] == ':';
         spans.add(
           TextSpan(
-            text: m.group(1),
-            style: TextStyle(color: isKey ? keyColor : stringColor),
+            text: segment.text.substring(match.start, match.end),
+            style: TextStyle(
+              backgroundColor: Colors.yellow[300],
+              color: Colors.black,
+            ),
           ),
         );
-      } else if (m.group(2) != null) {
+        lastEnd = match.end;
+      }
+      if (lastEnd < segment.text.length) {
         spans.add(
-          TextSpan(
-            text: m.group(2),
-            style: TextStyle(color: numberColor),
-          ),
-        );
-      } else if (m.group(3) != null) {
-        spans.add(
-          TextSpan(
-            text: m.group(3),
-            style: TextStyle(color: boolNullColor),
-          ),
-        );
-      } else {
-        spans.add(
-          TextSpan(
-            text: m.group(0),
-            style: TextStyle(color: defaultColor),
-          ),
+          TextSpan(text: segment.text.substring(lastEnd), style: baseStyle),
         );
       }
     }
     return spans;
   }
 
-  static List<TextSpan> _buildSpansWithSearch(
-    String source,
-    bool isDark,
-    String query,
-  ) {
+  static Color _colorFor(JsonTokenKind kind, bool isDark) {
     // VS Code–inspired palette, dark and light variants
-    final keyColor = isDark ? const Color(0xFF9CDCFE) : const Color(0xFF0451A5);
-    final stringColor = isDark
-        ? const Color(0xFFCE9178)
-        : const Color(0xFFA31515);
-    final numberColor = isDark
-        ? const Color(0xFFB5CEA8)
-        : const Color(0xFF098658);
-    final boolNullColor = isDark
-        ? const Color(0xFF569CD6)
-        : const Color(0xFF0000FF);
-    final defaultColor = isDark
-        ? const Color(0xFFD4D4D4)
-        : const Color(0xFF1E1E1E);
-    final searchColor = Colors.yellow[300];
-
-    final re = RegExp(
-      r'("(?:[^"\\]|\\.)*")' // group 1 – string
-      r'|(-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)' // group 2 – number
-      r'|(true|false|null)' // group 3 – keyword
-      r'|([{}\[\],:])' // group 4 – punctuation
-      r'|(\s+)' // group 5 – whitespace
-      r'|(.)', // group 6 – fallback
-      dotAll: true,
-    );
-
-    final searchPattern = RegExp(query, caseSensitive: false);
-    final spans = <TextSpan>[];
-
-    for (final m in re.allMatches(source)) {
-      final text = m.group(0)!;
-      final start = m.start;
-      final end = m.end;
-
-      // Check if this span contains search matches
-      final searchMatches = searchPattern.allMatches(text);
-
-      if (searchMatches.isEmpty) {
-        // No search matches in this span, apply normal styling
-        if (m.group(1) != null) {
-          // Determine key vs string value: look ahead for ':'
-          var i = end;
-          while (i < source.length && (source[i] == ' ' || source[i] == '\t')) {
-            i++;
-          }
-          final isKey = i < source.length && source[i] == ':';
-          spans.add(
-            TextSpan(
-              text: text,
-              style: TextStyle(color: isKey ? keyColor : stringColor),
-            ),
-          );
-        } else if (m.group(2) != null) {
-          spans.add(
-            TextSpan(
-              text: text,
-              style: TextStyle(color: numberColor),
-            ),
-          );
-        } else if (m.group(3) != null) {
-          spans.add(
-            TextSpan(
-              text: text,
-              style: TextStyle(color: boolNullColor),
-            ),
-          );
-        } else {
-          spans.add(
-            TextSpan(
-              text: text,
-              style: TextStyle(color: defaultColor),
-            ),
-          );
-        }
-      } else {
-        // This span contains search matches, need to split it
-        int lastEnd = 0;
-        for (final searchMatch in searchMatches) {
-          // Add text before match
-          if (searchMatch.start > lastEnd) {
-            final beforeText = text.substring(lastEnd, searchMatch.start);
-            TextStyle? style;
-            if (m.group(1) != null) {
-              // Determine key vs string value for the before part
-              var i = start + searchMatch.start;
-              while (i < source.length &&
-                  (source[i] == ' ' || source[i] == '\t')) {
-                i++;
-              }
-              final isKey = i < source.length && source[i] == ':';
-              style = TextStyle(color: isKey ? keyColor : stringColor);
-            } else if (m.group(2) != null) {
-              style = TextStyle(color: numberColor);
-            } else if (m.group(3) != null) {
-              style = TextStyle(color: boolNullColor);
-            } else {
-              style = TextStyle(color: defaultColor);
-            }
-            spans.add(TextSpan(text: beforeText, style: style));
-          }
-
-          // Add highlighted match
-          final matchText = text.substring(searchMatch.start, searchMatch.end);
-          spans.add(
-            TextSpan(
-              text: matchText,
-              style: TextStyle(
-                backgroundColor: searchColor,
-                color: Colors.black,
-              ),
-            ),
-          );
-
-          lastEnd = searchMatch.end;
-        }
-
-        // Add remaining text after last match
-        if (lastEnd < text.length) {
-          final afterText = text.substring(lastEnd);
-          TextStyle? style;
-          if (m.group(1) != null) {
-            // Determine key vs string value for the after part
-            var i = start + lastEnd;
-            while (i < source.length &&
-                (source[i] == ' ' || source[i] == '\t')) {
-              i++;
-            }
-            final isKey = i < source.length && source[i] == ':';
-            style = TextStyle(color: isKey ? keyColor : stringColor);
-          } else if (m.group(2) != null) {
-            style = TextStyle(color: numberColor);
-          } else if (m.group(3) != null) {
-            style = TextStyle(color: boolNullColor);
-          } else {
-            style = TextStyle(color: defaultColor);
-          }
-          spans.add(TextSpan(text: afterText, style: style));
-        }
-      }
-    }
-    return spans;
+    return switch (kind) {
+      JsonTokenKind.key =>
+        isDark ? const Color(0xFF9CDCFE) : const Color(0xFF0451A5),
+      JsonTokenKind.string =>
+        isDark ? const Color(0xFFCE9178) : const Color(0xFFA31515),
+      JsonTokenKind.number =>
+        isDark ? const Color(0xFFB5CEA8) : const Color(0xFF098658),
+      JsonTokenKind.boolNull =>
+        isDark ? const Color(0xFF569CD6) : const Color(0xFF0000FF),
+      JsonTokenKind.punctuation ||
+      JsonTokenKind.whitespace ||
+      JsonTokenKind.other =>
+        isDark ? const Color(0xFFD4D4D4) : const Color(0xFF1E1E1E),
+    };
   }
 }
