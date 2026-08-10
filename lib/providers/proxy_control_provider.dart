@@ -7,8 +7,8 @@ import 'proxy_channel_provider.dart';
 
 final proxyStateProvider =
     StateNotifierProvider<ProxyStateNotifier, ProxyState>((ref) {
-  return ProxyStateNotifier(ref);
-});
+      return ProxyStateNotifier(ref);
+    });
 
 class ProxyStateNotifier extends StateNotifier<ProxyState> {
   final Ref _ref;

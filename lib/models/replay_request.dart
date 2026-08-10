@@ -23,7 +23,7 @@ class ReplayRequest {
     if (exchange.cachedRequestBody != null) {
       body = String.fromCharCodes(exchange.cachedRequestBody!);
     }
-    
+
     return ReplayRequest(
       originalExchangeId: exchange.id,
       method: exchange.method,
@@ -38,7 +38,9 @@ class ReplayRequest {
       'originalExchangeId': originalExchangeId,
       'method': method,
       'url': url,
-      'headers': headers.map((h) => {'name': h.name, 'value': h.value}).toList(),
+      'headers': headers
+          .map((h) => {'name': h.name, 'value': h.value})
+          .toList(),
       'body': body,
       'followRedirects': followRedirects,
     };

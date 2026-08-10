@@ -39,14 +39,13 @@ class _ColWidths {
     double? host,
     double? duration,
     double? size,
-  }) =>
-      _ColWidths(
-        method: method ?? this.method,
-        status: status ?? this.status,
-        host: host ?? this.host,
-        duration: duration ?? this.duration,
-        size: size ?? this.size,
-      );
+  }) => _ColWidths(
+    method: method ?? this.method,
+    status: status ?? this.status,
+    host: host ?? this.host,
+    duration: duration ?? this.duration,
+    size: size ?? this.size,
+  );
 }
 
 // MARK: - Root view
@@ -98,9 +97,11 @@ class _RequestListViewState extends ConsumerState<RequestListView> {
                           exchange: exchange,
                           isSelected: isSelected,
                           widths: _widths,
-                          onTap: () => ref
-                              .read(selectedExchangeIdProvider.notifier)
-                              .state = exchange.id,
+                          onTap: () =>
+                              ref
+                                      .read(selectedExchangeIdProvider.notifier)
+                                      .state =
+                                  exchange.id,
                         );
                       },
                     ),
@@ -157,10 +158,14 @@ class _ColumnHeader extends StatelessWidget {
           _ResizeHandle(
             onDelta: (dx) => onResize(
               widths.copyWith(
-                  duration: (widths.duration - dx).clamp(48.0, 150.0)),
+                duration: (widths.duration - dx).clamp(48.0, 150.0),
+              ),
             ),
           ),
-          SizedBox(width: widths.duration, child: const _HeaderLabel('Duration')),
+          SizedBox(
+            width: widths.duration,
+            child: const _HeaderLabel('Duration'),
+          ),
           // Size — handle on LEFT edge
           _ResizeHandle(
             onDelta: (dx) => onResize(
@@ -183,9 +188,9 @@ class _HeaderLabel extends StatelessWidget {
     return Text(
       label,
       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-            fontWeight: FontWeight.w600,
-          ),
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+        fontWeight: FontWeight.w600,
+      ),
       overflow: TextOverflow.ellipsis,
     );
   }
@@ -221,7 +226,9 @@ class _ResizeHandleState extends State<_ResizeHandle> {
               width: 1,
               height: double.infinity,
               color: _hovering
-                  ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.35)
+                  ? Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withValues(alpha: 0.35)
                   : Colors.transparent,
             ),
           ),
@@ -252,8 +259,11 @@ class _ExchangeRow extends ConsumerWidget {
 
   bool get _canAddDomain => exchange.isHTTPS && !exchange.isMITMDecrypted;
 
-  bool get _canReplay => exchange.state == ExchangeState.completed && 
-                         !(exchange.isHTTPS && !exchange.isMITMDecrypted && exchange.method == 'CONNECT');
+  bool get _canReplay =>
+      exchange.state == ExchangeState.completed &&
+      !(exchange.isHTTPS &&
+          !exchange.isMITMDecrypted &&
+          exchange.method == 'CONNECT');
 
   bool get _canMapLocal => _canReplay;
 
@@ -276,7 +286,9 @@ class _ExchangeRow extends ConsumerWidget {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Map Local rule added — proxy will restart to apply it'),
+          content: Text(
+            'Map Local rule added — proxy will restart to apply it',
+          ),
           duration: Duration(seconds: 2),
           behavior: SnackBarBehavior.floating,
           margin: EdgeInsets.only(bottom: 80.0, left: 10.0, right: 10.0),
@@ -293,8 +305,10 @@ class _ExchangeRow extends ConsumerWidget {
           .fetchBody(exchange.requestBodyRef!);
       if (bodyBytes != null) exchange.setCachedRequestBody(bodyBytes);
     }
-    final curl =
-        DataFormatting.buildCurlCommand(exchange, bodyBytes: bodyBytes);
+    final curl = DataFormatting.buildCurlCommand(
+      exchange,
+      bodyBytes: bodyBytes,
+    );
     await Clipboard.setData(ClipboardData(text: curl));
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -319,15 +333,18 @@ class _ExchangeRow extends ConsumerWidget {
   }
 
   void _showContextMenu(
-      BuildContext context, WidgetRef ref, Offset globalPosition) async {
+    BuildContext context,
+    WidgetRef ref,
+    Offset globalPosition,
+  ) async {
     if (!_canCopyCurl && !_canAddDomain) return;
 
     final settings = ref.read(settingsProvider);
-    final alreadyIntercepted =
-        settings.domainRules.any((r) => r.domain == exchange.host);
+    final alreadyIntercepted = settings.domainRules.any(
+      (r) => r.domain == exchange.host,
+    );
 
-    final overlay =
-        Overlay.of(context).context.findRenderObject() as RenderBox;
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
     final result = await showMenu<String>(
       context: context,
       position: RelativeRect.fromRect(
@@ -370,7 +387,10 @@ class _ExchangeRow extends ConsumerWidget {
         if (_canMapLocal)
           const PopupMenuItem<String>(
             value: 'map_local',
-            child: Text('Mock with local file…', style: TextStyle(fontSize: 13)),
+            child: Text(
+              'Mock with local file…',
+              style: TextStyle(fontSize: 13),
+            ),
           ),
       ],
     );
@@ -401,7 +421,7 @@ class _ExchangeRow extends ConsumerWidget {
     debugPrint('Exchange URL: ${exchange.url}');
     debugPrint('Has cached body: ${exchange.cachedRequestBody != null}');
     debugPrint('Has body ref: ${exchange.requestBodyRef != null}');
-    
+
     // Fetch body if not cached
     if (exchange.cachedRequestBody == null && exchange.requestBodyRef != null) {
       debugPrint('Fetching body from storage...');
@@ -409,38 +429,51 @@ class _ExchangeRow extends ConsumerWidget {
       final bodyBytes = await channel.fetchBody(exchange.requestBodyRef!);
       if (bodyBytes != null) {
         exchange.setCachedRequestBody(bodyBytes);
-        debugPrint('Body fetched and cached: ${String.fromCharCodes(bodyBytes)}');
+        debugPrint(
+          'Body fetched and cached: ${String.fromCharCodes(bodyBytes)}',
+        );
       } else {
         debugPrint('Body fetch returned null');
       }
     }
-    
+
     final replayRequest = ReplayRequest.fromExchange(exchange);
-    
+
+    if (!context.mounted) return;
     final result = await showDialog<ReplayRequest>(
       context: context,
       builder: (context) => ReplayDialog(initialRequest: replayRequest),
     );
-    
+
     if (result != null) {
       try {
         final channel = ref.read(proxyChannelProvider);
         final exchangeId = await channel.replayRequest(result.toMap());
+        if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Request replayed: $exchangeId'),
             duration: const Duration(seconds: 2),
             behavior: SnackBarBehavior.floating,
-            margin: const EdgeInsets.only(bottom: 80.0, left: 10.0, right: 10.0),
+            margin: const EdgeInsets.only(
+              bottom: 80.0,
+              left: 10.0,
+              right: 10.0,
+            ),
           ),
         );
       } catch (e) {
+        if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to replay: ${e.toString()}'),
             duration: const Duration(seconds: 2),
             behavior: SnackBarBehavior.floating,
-            margin: const EdgeInsets.only(bottom: 80.0, left: 10.0, right: 10.0),
+            margin: const EdgeInsets.only(
+              bottom: 80.0,
+              left: 10.0,
+              right: 10.0,
+            ),
           ),
         );
       }

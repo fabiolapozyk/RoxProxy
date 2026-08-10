@@ -81,11 +81,14 @@ class BodyRenderer {
     } catch (_) {
       // Se il Content-Type è text/html o specifica UTF-8, forza la decodifica come UTF-8
       // ignorando i byte non validi
-      if (contentType != null && (contentType.toLowerCase().contains('text/html') ||
-          contentType.toLowerCase().contains('charset=utf-8'))) {
+      if (contentType != null &&
+          (contentType.toLowerCase().contains('text/html') ||
+              contentType.toLowerCase().contains('charset=utf-8'))) {
         final str = utf8.decode(data, allowMalformed: true);
         // Verifica se la stringa contiene caratteri non validi
-        final hasInvalidChars = str.runes.any((r) => r < 32 && r != 9 && r != 10 && r != 13);
+        final hasInvalidChars = str.runes.any(
+          (r) => r < 32 && r != 9 && r != 10 && r != 13,
+        );
         if (hasInvalidChars) {
           // Rimuovi i caratteri non validi
           return str.replaceAll(RegExp(r'[\x00-\x08\x0B\x0C\x0E-\x1F]'), '');
@@ -132,7 +135,9 @@ class BodyRenderer {
       // ASCII
       sb.write(' |');
       for (final byte in chunk) {
-        sb.write((byte >= 0x20 && byte < 0x7f) ? String.fromCharCode(byte) : '.');
+        sb.write(
+          (byte >= 0x20 && byte < 0x7f) ? String.fromCharCode(byte) : '.',
+        );
       }
       sb.write('|\n');
     }

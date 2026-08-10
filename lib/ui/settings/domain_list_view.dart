@@ -46,10 +46,13 @@ class _DomainListViewState extends ConsumerState<DomainListView> {
                     hintText: 'example.com or *.example.com',
                     hintStyle: const TextStyle(fontSize: 13),
                     isDense: true,
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 6,
+                    ),
                     border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(6)),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
                   ),
                   onSubmitted: (_) => _add(),
                 ),
@@ -59,7 +62,9 @@ class _DomainListViewState extends ConsumerState<DomainListView> {
                 onPressed: _add,
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 8),
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
                   textStyle: const TextStyle(fontSize: 13),
                 ),
                 child: const Text('Add'),
@@ -79,7 +84,7 @@ class _DomainListViewState extends ConsumerState<DomainListView> {
                 )
               : ListView.separated(
                   itemCount: rules.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  separatorBuilder: (_, _) => const Divider(height: 1),
                   itemBuilder: (context, i) {
                     final rule = rules[i];
                     return ListTile(
@@ -94,10 +99,9 @@ class _DomainListViewState extends ConsumerState<DomainListView> {
                           fontSize: 13,
                           color: rule.isEnabled
                               ? null
-                              : Theme.of(context)
-                                  .colorScheme
-                                  .onSurface
-                                  .withAlpha(100),
+                              : Theme.of(
+                                  context,
+                                ).colorScheme.onSurface.withAlpha(100),
                         ),
                       ),
                       trailing: IconButton(

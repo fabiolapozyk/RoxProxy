@@ -24,10 +24,12 @@ class _GeneralSettingsState extends ConsumerState<GeneralSettings> {
     super.initState();
     final settings = ref.read(settingsProvider);
     _portController = TextEditingController(text: settings.port.toString());
-    _maxExchangesController =
-        TextEditingController(text: settings.maxExchanges.toString());
+    _maxExchangesController = TextEditingController(
+      text: settings.maxExchanges.toString(),
+    );
     _timeoutController = TextEditingController(
-        text: settings.connectionTimeoutSeconds.toString());
+      text: settings.connectionTimeoutSeconds.toString(),
+    );
 
     _portFocus = FocusNode()
       ..addListener(() {
@@ -35,11 +37,15 @@ class _GeneralSettingsState extends ConsumerState<GeneralSettings> {
       });
     _maxExchangesFocus = FocusNode()
       ..addListener(() {
-        if (!_maxExchangesFocus.hasFocus) _saveMaxExchanges(_maxExchangesController.text);
+        if (!_maxExchangesFocus.hasFocus) {
+          _saveMaxExchanges(_maxExchangesController.text);
+        }
       });
     _timeoutFocus = FocusNode()
       ..addListener(() {
-        if (!_timeoutFocus.hasFocus) _saveTimeout(_timeoutController.text);
+        if (!_timeoutFocus.hasFocus) {
+          _saveTimeout(_timeoutController.text);
+        }
       });
   }
 
@@ -57,7 +63,10 @@ class _GeneralSettingsState extends ConsumerState<GeneralSettings> {
     if (n != null && n > 0) {
       ref.read(settingsProvider.notifier).setMaxExchanges(n);
     } else {
-      _maxExchangesController.text = ref.read(settingsProvider).maxExchanges.toString();
+      _maxExchangesController.text = ref
+          .read(settingsProvider)
+          .maxExchanges
+          .toString();
     }
   }
 
@@ -66,7 +75,10 @@ class _GeneralSettingsState extends ConsumerState<GeneralSettings> {
     if (t != null && t > 0) {
       ref.read(settingsProvider.notifier).setConnectionTimeout(t);
     } else {
-      _timeoutController.text = ref.read(settingsProvider).connectionTimeoutSeconds.toString();
+      _timeoutController.text = ref
+          .read(settingsProvider)
+          .connectionTimeoutSeconds
+          .toString();
     }
   }
 
@@ -157,11 +169,10 @@ class _GeneralSettingsState extends ConsumerState<GeneralSettings> {
 }
 
 InputDecoration _inputDecoration() => InputDecoration(
-      isDense: true,
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
-    );
+  isDense: true,
+  contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+  border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+);
 
 class _SectionLabel extends StatelessWidget {
   final String text;

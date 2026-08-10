@@ -23,7 +23,11 @@ class StatusIndicator extends StatelessWidget {
       );
     }
     if (state == ExchangeState.failed) {
-      return const Icon(Icons.error_outline, size: 14, color: Color(0xFFFF3B30));
+      return const Icon(
+        Icons.error_outline,
+        size: 14,
+        color: Color(0xFFFF3B30),
+      );
     }
     if (statusCode == null) return const SizedBox(width: 40);
 

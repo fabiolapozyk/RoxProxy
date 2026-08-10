@@ -4,6 +4,7 @@
 # Swift / SPM
 /.build
 packages/rox_proxy_native/.build/
+packages/rox_proxy_native/macos/*Tests/.build/
 xcuserdata/
 DerivedData/
 .swiftpm/configuration/registries.json
@@ -30,6 +31,8 @@ macos/Podfile.lock
 # IDE
 .idea/
 *.xcworkspace
+!macos/Runner.xcworkspace/
+!macos/Runner.xcworkspace/**
 
 # Claude specific files
 .claude/settings.local.json
@@ -38,7 +41,7 @@ macos/Podfile.lock
 .swiftpm/xcode/xcshareddata/xcschemes/
 
 # Release scripts
-scripts/
+scripts/release_script.sh
 
 # Test certificates and temporary files
 /TestCerts/

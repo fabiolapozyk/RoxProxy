@@ -13,10 +13,11 @@ final settingsServiceProvider = Provider<SettingsService>((ref) {
 /// True once settings have been loaded from disk for the first time.
 final settingsLoadedProvider = StateProvider<bool>((ref) => false);
 
-final settingsProvider =
-    StateNotifierProvider<SettingsNotifier, ProxySettings>((ref) {
-  return SettingsNotifier(ref.read(settingsServiceProvider), ref);
-});
+final settingsProvider = StateNotifierProvider<SettingsNotifier, ProxySettings>(
+  (ref) {
+    return SettingsNotifier(ref.read(settingsServiceProvider), ref);
+  },
+);
 
 class SettingsNotifier extends StateNotifier<ProxySettings> {
   final SettingsService _service;
@@ -70,10 +71,9 @@ class SettingsNotifier extends StateNotifier<ProxySettings> {
     _save();
     // Apply immediately if the proxy is currently running.
     if (_ref.read(proxyStateProvider).isRunning) {
-      _ref.read(proxyChannelProvider).configureSystemProxy(
-            enabled: value,
-            port: state.port,
-          );
+      _ref
+          .read(proxyChannelProvider)
+          .configureSystemProxy(enabled: value, port: state.port);
     }
   }
 
@@ -82,7 +82,10 @@ class SettingsNotifier extends StateNotifier<ProxySettings> {
     if (trimmed.isEmpty) return;
     if (state.domainRules.any((r) => r.domain == trimmed)) return;
     state = state.copyWith(
-      domainRules: [...state.domainRules, DomainRule(domain: trimmed)],
+      domainRules: [
+        ...state.domainRules,
+        DomainRule(domain: trimmed),
+      ],
     );
     _save();
   }
@@ -97,9 +100,15 @@ class SettingsNotifier extends StateNotifier<ProxySettings> {
   void toggleDomain(String id) {
     state = state.copyWith(
       domainRules: state.domainRules
-          .map((r) => r.id == id
-              ? DomainRule(id: r.id, domain: r.domain, isEnabled: !r.isEnabled)
-              : r)
+          .map(
+            (r) => r.id == id
+                ? DomainRule(
+                    id: r.id,
+                    domain: r.domain,
+                    isEnabled: !r.isEnabled,
+                  )
+                : r,
+          )
           .toList(),
     );
     _save();

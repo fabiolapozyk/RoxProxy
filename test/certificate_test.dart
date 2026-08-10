@@ -21,9 +21,9 @@ void main() {
     test('installCACertificate should return true on success', () async {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(controlChannel, (call) async {
-        expect(call.method, 'installCACertificate');
-        return {'trusted': true};
-      });
+            expect(call.method, 'installCACertificate');
+            return {'trusted': true};
+          });
 
       final result = await proxyChannel.installCACertificate();
       expect(result, isTrue);
@@ -40,9 +40,9 @@ void main() {
     test('checkCATrust should return the trust boolean', () async {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(controlChannel, (call) async {
-        expect(call.method, 'checkCATrust');
-        return {'trusted': true};
-      });
+            expect(call.method, 'checkCATrust');
+            return {'trusted': true};
+          });
 
       final result = await proxyChannel.checkCATrust();
       expect(result, isTrue);
@@ -51,9 +51,9 @@ void main() {
     test('getCAStatus should return a valid CaStatus object', () async {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(controlChannel, (call) async {
-        expect(call.method, 'getCAStatus');
-        return {'initialized': true, 'trusted': true};
-      });
+            expect(call.method, 'getCAStatus');
+            return {'initialized': true, 'trusted': true};
+          });
 
       final result = await proxyChannel.getCAStatus();
       expect(result, isA<CaStatus>());

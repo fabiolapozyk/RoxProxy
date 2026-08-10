@@ -26,7 +26,10 @@ class MapLocalRuleManager extends ConsumerWidget {
   }
 
   Future<void> _editRule(
-      BuildContext context, WidgetRef ref, MapLocalRule rule) async {
+    BuildContext context,
+    WidgetRef ref,
+    MapLocalRule rule,
+  ) async {
     final updated = await showDialog<MapLocalRule>(
       context: context,
       builder: (_) => MapLocalRuleEditDialog(initial: rule),
@@ -47,9 +50,11 @@ class MapLocalRuleManager extends ConsumerWidget {
     if (!context.mounted) return;
     final file = File(path);
     try {
-      file.writeAsStringSync(JsonEncoder.withIndent('  ').convert(
-        rules.map((r) => r.toJson()).toList(),
-      ));
+      file.writeAsStringSync(
+        JsonEncoder.withIndent(
+          '  ',
+        ).convert(rules.map((r) => r.toJson()).toList()),
+      );
       _snack(context, 'Exported ${rules.length} rule(s) to $path');
     } catch (e) {
       _snack(context, 'Export failed: $e', error: true);
@@ -69,8 +74,11 @@ class MapLocalRuleManager extends ConsumerWidget {
     try {
       final decoded = jsonDecode(File(path).readAsStringSync());
       if (decoded is! List) {
-        _snack(context, 'Import failed: file must contain a JSON array',
-            error: true);
+        _snack(
+          context,
+          'Import failed: file must contain a JSON array',
+          error: true,
+        );
         return;
       }
       final rules = decoded

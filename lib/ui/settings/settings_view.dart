@@ -36,29 +36,30 @@ class _SettingsViewState extends State<SettingsView> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               // Sidebar
-              Container(
-                width: 180,
+              Material(
                 color: Theme.of(context).colorScheme.surfaceContainerLow,
-                child: ListView.builder(
-                  itemCount: _sections.length,
-                  itemBuilder: (context, i) {
-                    final section = _sections[i];
-                    final selected = i == _selectedIndex;
-                    return ListTile(
-                      dense: true,
-                      leading: Icon(section.icon, size: 18),
-                      title: Text(
-                        section.label,
-                        style: const TextStyle(fontSize: 13),
-                      ),
-                      selected: selected,
-                      selectedTileColor: Theme.of(context)
-                          .colorScheme
-                          .primaryContainer
-                          .withAlpha(140),
-                      onTap: () => setState(() => _selectedIndex = i),
-                    );
-                  },
+                child: SizedBox(
+                  width: 180,
+                  child: ListView.builder(
+                    itemCount: _sections.length,
+                    itemBuilder: (context, i) {
+                      final section = _sections[i];
+                      final selected = i == _selectedIndex;
+                      return ListTile(
+                        dense: true,
+                        leading: Icon(section.icon, size: 18),
+                        title: Text(
+                          section.label,
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                        selected: selected,
+                        selectedTileColor: Theme.of(
+                          context,
+                        ).colorScheme.primaryContainer.withAlpha(140),
+                        onTap: () => setState(() => _selectedIndex = i),
+                      );
+                    },
+                  ),
                 ),
               ),
               const VerticalDivider(width: 1),

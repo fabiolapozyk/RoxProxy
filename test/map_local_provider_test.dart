@@ -20,9 +20,9 @@ void main() {
   });
 
   ProviderContainer makeContainer() {
-    final container = ProviderContainer(overrides: [
-      mapLocalServiceProvider.overrideWithValue(service),
-    ]);
+    final container = ProviderContainer(
+      overrides: [mapLocalServiceProvider.overrideWithValue(service)],
+    );
     addTearDown(container.dispose);
     return container;
   }
@@ -35,8 +35,11 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 1));
       tries++;
     }
-    expect(container.read(mapLocalLoadedProvider), isTrue,
-        reason: 'provider should finish loading');
+    expect(
+      container.read(mapLocalLoadedProvider),
+      isTrue,
+      reason: 'provider should finish loading',
+    );
   }
 
   test('loads empty rules by default', () async {

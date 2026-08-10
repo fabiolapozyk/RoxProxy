@@ -27,14 +27,14 @@ class MethodBadge extends StatelessWidget {
   }
 
   Color _color(String m) => switch (m.toUpperCase()) {
-        'GET' => const Color(0xFF34C759),
-        'POST' => const Color(0xFF007AFF),
-        'PUT' => const Color(0xFFFF9500),
-        'PATCH' => const Color(0xFFAF52DE),
-        'DELETE' => const Color(0xFFFF3B30),
-        'HEAD' => const Color(0xFF5AC8FA),
-        'OPTIONS' => const Color(0xFF636366),
-        'CONNECT' => const Color(0xFF8E8E93),
-        _ => const Color(0xFF8E8E93),
-      };
+    'GET' => const Color(0xFF34C759),
+    'POST' => const Color(0xFF007AFF),
+    'PUT' => const Color(0xFFFF9500),
+    'PATCH' => const Color(0xFFAF52DE),
+    'DELETE' => const Color(0xFFFF3B30),
+    'HEAD' => const Color(0xFF5AC8FA),
+    'OPTIONS' => const Color(0xFF636366),
+    'CONNECT' => const Color(0xFF8E8E93),
+    _ => const Color(0xFF8E8E93),
+  };
 }

@@ -34,14 +34,16 @@ void main() {
   });
 
   test('load tolerates corrupt JSON', () async {
-    File('${tempDir.path}/map_local_rules.json')
-        .writeAsStringSync('{not valid json');
+    File(
+      '${tempDir.path}/map_local_rules.json',
+    ).writeAsStringSync('{not valid json');
     expect(await service.load(), isEmpty);
   });
 
   test('load tolerates non-list JSON', () async {
-    File('${tempDir.path}/map_local_rules.json')
-        .writeAsStringSync('{"foo": 1}');
+    File(
+      '${tempDir.path}/map_local_rules.json',
+    ).writeAsStringSync('{"foo": 1}');
     expect(await service.load(), isEmpty);
   });
 
@@ -60,8 +62,11 @@ void main() {
     final dir = tempDir.path;
     expect(File('$dir/map_local_rules.json').existsSync(), isTrue);
     for (var i = 1; i <= 5; i++) {
-      expect(File('$dir/map_local_rules.json.backup.$i').existsSync(), isTrue,
-          reason: 'backup $i should exist');
+      expect(
+        File('$dir/map_local_rules.json.backup.$i').existsSync(),
+        isTrue,
+        reason: 'backup $i should exist',
+      );
     }
     expect(File('$dir/map_local_rules.json.backup.6').existsSync(), isFalse);
 
@@ -69,7 +74,9 @@ void main() {
     final newest = await service.load();
     expect(newest.single.pathPattern, '/api/v7');
     final backup5 =
-        jsonDecode(File('$dir/map_local_rules.json.backup.5').readAsStringSync())
+        jsonDecode(
+              File('$dir/map_local_rules.json.backup.5').readAsStringSync(),
+            )
             as List;
     expect((backup5.single as Map)['pathPattern'], '/api/v2');
   });

@@ -41,8 +41,7 @@ class CapturedExchange {
   void setCachedRequestBody(Uint8List data) => _cachedRequestBody = data;
   void setCachedResponseBody(Uint8List data) => _cachedResponseBody = data;
 
-  Duration? get duration =>
-      endTime != null ? endTime!.difference(startTime) : null;
+  Duration? get duration => endTime?.difference(startTime);
 
   CapturedExchange({
     required this.id,
@@ -74,10 +73,10 @@ class CapturedExchange {
     return CapturedExchange(
       id: map['id'] as String,
       startTime: DateTime.fromMillisecondsSinceEpoch(
-          (map['startTime'] as num).toInt()),
+        (map['startTime'] as num).toInt(),
+      ),
       endTime: map['endTime'] != null
-          ? DateTime.fromMillisecondsSinceEpoch(
-              (map['endTime'] as num).toInt())
+          ? DateTime.fromMillisecondsSinceEpoch((map['endTime'] as num).toInt())
           : null,
       method: map['method'] as String,
       url: map['url'] as String,
@@ -133,8 +132,8 @@ class CapturedExchange {
   }
 
   static ExchangeState _parseState(String s) => switch (s) {
-        'completed' => ExchangeState.completed,
-        'failed' => ExchangeState.failed,
-        _ => ExchangeState.inProgress,
-      };
+    'completed' => ExchangeState.completed,
+    'failed' => ExchangeState.failed,
+    _ => ExchangeState.inProgress,
+  };
 }

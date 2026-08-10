@@ -21,10 +21,7 @@ class StatusBar extends ConsumerWidget {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
         border: Border(
-          top: BorderSide(
-            color: Theme.of(context).dividerColor,
-            width: 0.5,
-          ),
+          top: BorderSide(color: Theme.of(context).dividerColor, width: 0.5),
         ),
       ),
       child: Row(
@@ -36,8 +33,8 @@ class StatusBar extends ConsumerWidget {
                 ? '$filtered of $total requests'
                 : '$total requests',
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
         ],
       ),
@@ -67,8 +64,8 @@ class _StateIndicator extends StatelessWidget {
           child: Text(
             state.description,
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
             overflow: TextOverflow.ellipsis,
           ),
         ),
@@ -77,9 +74,9 @@ class _StateIndicator extends StatelessWidget {
   }
 
   Color _dotColor(ProxyState s) => switch (s) {
-        ProxyRunning() => const Color(0xFF34C759),
-        ProxyStarting() => const Color(0xFFFF9500),
-        ProxyError() => const Color(0xFFFF3B30),
-        _ => const Color(0xFF8E8E93),
-      };
+    ProxyRunning() => const Color(0xFF34C759),
+    ProxyStarting() => const Color(0xFFFF9500),
+    ProxyError() => const Color(0xFFFF3B30),
+    _ => const Color(0xFF8E8E93),
+  };
 }

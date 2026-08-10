@@ -14,11 +14,18 @@ flutter run -d macos
 # Test Dart
 flutter test
 
-# Test Swift
-cd packages/rox_proxy_native && swift test
+# Test Swift (core puro, package standalone)
+cd packages/rox_proxy_native/macos/CoreTests && swift test
+
+# Verifica completa (format + analyze + unit test + swift test + build debug)
+./scripts/verify.sh
+./scripts/verify.sh --fast   # salta build debug
+
+# Smoke test end-to-end (build release, launch, /health, /stats, clean shutdown)
+./scripts/smoke.sh
 
 # Run specific Swift test
-swift test Tests.RoxProxyTests --filter HTTPProxyHandlerTests
+cd packages/rox_proxy_native/macos/CoreTests && swift test --filter DomainRuleTests
 
 # View logs (os_log)
 log show --predicate 'subsystem == "com.roxproxy"' --last 1h

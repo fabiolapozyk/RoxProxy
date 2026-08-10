@@ -49,7 +49,10 @@ class _DetailViewState extends State<DetailView>
                 fontSize: isCompact ? 11 : 12,
                 fontWeight: FontWeight.w500,
               ),
-              tabs: const [Tab(text: 'Request'), Tab(text: 'Response')],
+              tabs: const [
+                Tab(text: 'Request'),
+                Tab(text: 'Response'),
+              ],
             ),
             const Divider(height: 1),
             Expanded(
@@ -103,14 +106,20 @@ class _SummaryBar extends StatelessWidget {
             const SizedBox(width: 8),
             Text(
               DataFormatting.formatDuration(exchange.duration),
-              style: TextStyle(fontSize: isCompact ? 10 : 11, color: Colors.grey),
+              style: TextStyle(
+                fontSize: isCompact ? 10 : 11,
+                color: Colors.grey,
+              ),
             ),
           ],
           if (exchange.responseSize != null) ...[
             const SizedBox(width: 8),
             Text(
               DataFormatting.formatSize(exchange.responseSize!),
-              style: TextStyle(fontSize: isCompact ? 10 : 11, color: Colors.grey),
+              style: TextStyle(
+                fontSize: isCompact ? 10 : 11,
+                color: Colors.grey,
+              ),
             ),
           ],
         ],
@@ -196,9 +205,7 @@ class _ResponsePaneState extends State<_ResponsePane>
           ),
         Expanded(
           child: _tab == 0
-              ? HeadersTab(
-                  headers: widget.exchange.responseHeaders ?? [],
-                )
+              ? HeadersTab(headers: widget.exchange.responseHeaders ?? [])
               : BodyTab.response(exchange: widget.exchange),
         ),
       ],
@@ -213,8 +220,11 @@ class _SubTabBar extends StatelessWidget {
   final int selected;
   final ValueChanged<int> onTap;
 
-  const _SubTabBar(
-      {required this.tabs, required this.selected, required this.onTap});
+  const _SubTabBar({
+    required this.tabs,
+    required this.selected,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -242,7 +252,9 @@ class _SubTabBar extends StatelessWidget {
                   tabs[i],
                   style: TextStyle(
                     fontSize: 12,
-                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                    fontWeight: isSelected
+                        ? FontWeight.w600
+                        : FontWeight.normal,
                     color: isSelected
                         ? Theme.of(context).colorScheme.primary
                         : Theme.of(context).colorScheme.onSurfaceVariant,

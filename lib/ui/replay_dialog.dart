@@ -7,7 +7,7 @@ import '../models/captured_exchange.dart';
 class QueryParam {
   final String name;
   final String value;
-  
+
   QueryParam(this.name, this.value);
 }
 
@@ -36,7 +36,7 @@ class _ReplayDialogState extends ConsumerState<ReplayDialog> {
   void initState() {
     super.initState();
     _request = widget.initialRequest;
-    
+
     // Strip query parameters from URL for display
     final uri = Uri.parse(_request.url);
     final baseUrl = uri.origin + uri.path;
@@ -44,27 +44,39 @@ class _ReplayDialogState extends ConsumerState<ReplayDialog> {
     _urlController.addListener(() {
       _updateUrl(_urlController.text);
     });
-    
+
     _bodyController = TextEditingController(text: _request.body ?? '');
     _bodyController.addListener(() {
       _updateBody(_bodyController.text);
     });
-    
+
     // Parse existing query parameters from URL
     _parseQueryParameters();
-    
+
     // Initialize controllers for existing headers
     for (var i = 0; i < _request.headers.length; i++) {
-      _nameControllers[i] = TextEditingController(text: _request.headers[i].name);
-      _valueControllers[i] = TextEditingController(text: _request.headers[i].value);
-      
+      _nameControllers[i] = TextEditingController(
+        text: _request.headers[i].name,
+      );
+      _valueControllers[i] = TextEditingController(
+        text: _request.headers[i].value,
+      );
+
       // Add listeners to update headers when text changes
       final index = i;
       _nameControllers[i]!.addListener(() {
-        _updateHeader(index, _nameControllers[index]!.text, _request.headers[index].value);
+        _updateHeader(
+          index,
+          _nameControllers[index]!.text,
+          _request.headers[index].value,
+        );
       });
       _valueControllers[i]!.addListener(() {
-        _updateHeader(index, _request.headers[index].name, _valueControllers[index]!.text);
+        _updateHeader(
+          index,
+          _request.headers[index].name,
+          _valueControllers[index]!.text,
+        );
       });
     }
   }
@@ -99,35 +111,45 @@ class _ReplayDialogState extends ConsumerState<ReplayDialog> {
     // Handle manual URL modifications that might include query parameters
     final uri = Uri.parse(value);
     final baseUrl = uri.origin + uri.path;
-    
+
     // If URL contains query parameters, parse and add them to query params list
     if (uri.query.isNotEmpty) {
       final newParams = uri.queryParameters;
-      
+
       // Add new parameters that don't already exist
       newParams.forEach((name, value) {
         if (!_queryParams.any((param) => param.name == name)) {
           setState(() {
             _queryParams.add(QueryParam(name, value));
             final index = _queryParams.length - 1;
-            _queryParamNameControllers[index] = TextEditingController(text: name);
-            _queryParamValueControllers[index] = TextEditingController(text: value);
-            
+            _queryParamNameControllers[index] = TextEditingController(
+              text: name,
+            );
+            _queryParamValueControllers[index] = TextEditingController(
+              text: value,
+            );
+
             // Add listeners for new parameters
             final paramIndex = index;
             _queryParamNameControllers[index]!.addListener(() {
-              _updateQueryParam(paramIndex, _queryParamNameControllers[paramIndex]!.text, 
-                               _queryParams[paramIndex].value);
+              _updateQueryParam(
+                paramIndex,
+                _queryParamNameControllers[paramIndex]!.text,
+                _queryParams[paramIndex].value,
+              );
             });
             _queryParamValueControllers[index]!.addListener(() {
-              _updateQueryParam(paramIndex, _queryParams[paramIndex].name, 
-                               _queryParamValueControllers[paramIndex]!.text);
+              _updateQueryParam(
+                paramIndex,
+                _queryParams[paramIndex].name,
+                _queryParamValueControllers[paramIndex]!.text,
+              );
             });
           });
         }
       });
     }
-    
+
     // Update the base URL without query parameters
     setState(() => _request.url = baseUrl);
   }
@@ -155,18 +177,28 @@ class _ReplayDialogState extends ConsumerState<ReplayDialog> {
         final index = _queryParams.length - 1;
         _queryParamNameControllers[index] = TextEditingController(text: name);
         _queryParamValueControllers[index] = TextEditingController(text: value);
-        
+
         // Add listeners for existing parameters
         final paramIndex = index; // Capture index for closure
         _queryParamNameControllers[index]!.addListener(() {
-          debugPrint('Existing name controller $paramIndex changed: ${_queryParamNameControllers[paramIndex]!.text}');
-          _updateQueryParam(paramIndex, _queryParamNameControllers[paramIndex]!.text, 
-                           _queryParams[paramIndex].value);
+          debugPrint(
+            'Existing name controller $paramIndex changed: ${_queryParamNameControllers[paramIndex]!.text}',
+          );
+          _updateQueryParam(
+            paramIndex,
+            _queryParamNameControllers[paramIndex]!.text,
+            _queryParams[paramIndex].value,
+          );
         });
         _queryParamValueControllers[index]!.addListener(() {
-          debugPrint('Existing value controller $paramIndex changed: ${_queryParamValueControllers[paramIndex]!.text}');
-          _updateQueryParam(paramIndex, _queryParams[paramIndex].name, 
-                           _queryParamValueControllers[paramIndex]!.text);
+          debugPrint(
+            'Existing value controller $paramIndex changed: ${_queryParamValueControllers[paramIndex]!.text}',
+          );
+          _updateQueryParam(
+            paramIndex,
+            _queryParams[paramIndex].name,
+            _queryParamValueControllers[paramIndex]!.text,
+          );
         });
       });
     } catch (e) {
@@ -190,17 +222,27 @@ class _ReplayDialogState extends ConsumerState<ReplayDialog> {
       final index = _queryParams.length - 1;
       _queryParamNameControllers[index] = TextEditingController();
       _queryParamValueControllers[index] = TextEditingController();
-      
+
       // Add listeners
       _queryParamNameControllers[index]!.addListener(() {
-        debugPrint('Name controller $index changed: ${_queryParamNameControllers[index]!.text}');
-        _updateQueryParam(index, _queryParamNameControllers[index]!.text, 
-                         _queryParams[index].value);
+        debugPrint(
+          'Name controller $index changed: ${_queryParamNameControllers[index]!.text}',
+        );
+        _updateQueryParam(
+          index,
+          _queryParamNameControllers[index]!.text,
+          _queryParams[index].value,
+        );
       });
       _queryParamValueControllers[index]!.addListener(() {
-        debugPrint('Value controller $index changed: ${_queryParamValueControllers[index]!.text}');
-        _updateQueryParam(index, _queryParams[index].name, 
-                         _queryParamValueControllers[index]!.text);
+        debugPrint(
+          'Value controller $index changed: ${_queryParamValueControllers[index]!.text}',
+        );
+        _updateQueryParam(
+          index,
+          _queryParams[index].name,
+          _queryParamValueControllers[index]!.text,
+        );
       });
     });
   }
@@ -212,8 +254,12 @@ class _ReplayDialogState extends ConsumerState<ReplayDialog> {
       _queryParamValueControllers.remove(index)?.dispose();
       // Reindex controllers
       for (var i = index; i < _queryParams.length; i++) {
-        _queryParamNameControllers[i] = _queryParamNameControllers.remove(i + 1)!;
-        _queryParamValueControllers[i] = _queryParamValueControllers.remove(i + 1)!;
+        _queryParamNameControllers[i] = _queryParamNameControllers.remove(
+          i + 1,
+        )!;
+        _queryParamValueControllers[i] = _queryParamValueControllers.remove(
+          i + 1,
+        )!;
       }
     });
   }
@@ -222,7 +268,7 @@ class _ReplayDialogState extends ConsumerState<ReplayDialog> {
     try {
       // Parse the base URL (without query parameters)
       final baseUri = Uri.parse(_request.url);
-      
+
       // Build query parameters map from the dedicated fields
       final queryParamsMap = <String, String>{};
       for (var param in _queryParams) {
@@ -230,7 +276,7 @@ class _ReplayDialogState extends ConsumerState<ReplayDialog> {
           queryParamsMap[param.name] = param.value;
         }
       }
-      
+
       // Combine base URL with query parameters
       final newUri = baseUri.replace(queryParameters: queryParamsMap);
       return newUri.toString();
@@ -251,10 +297,18 @@ class _ReplayDialogState extends ConsumerState<ReplayDialog> {
       _valueControllers[index] = TextEditingController();
       // Add listeners to update headers when text changes
       _nameControllers[index]!.addListener(() {
-        _updateHeader(index, _nameControllers[index]!.text, _request.headers[index].value);
+        _updateHeader(
+          index,
+          _nameControllers[index]!.text,
+          _request.headers[index].value,
+        );
       });
       _valueControllers[index]!.addListener(() {
-        _updateHeader(index, _request.headers[index].name, _valueControllers[index]!.text);
+        _updateHeader(
+          index,
+          _request.headers[index].name,
+          _valueControllers[index]!.text,
+        );
       });
     });
   }
@@ -281,7 +335,7 @@ class _ReplayDialogState extends ConsumerState<ReplayDialog> {
     debugPrint('=== SEND REQUEST DEBUG ===');
     debugPrint('Method: ${_request.method}');
     debugPrint('Original URL: ${_request.url}');
-    
+
     // Update headers from controllers before validation
     for (var i = 0; i < _request.headers.length; i++) {
       final name = _nameControllers[i]?.text.trim() ?? '';
@@ -303,12 +357,14 @@ class _ReplayDialogState extends ConsumerState<ReplayDialog> {
     if (_request.method == 'GET' || _request.method == 'HEAD') {
       debugPrint('Preparing GET/HEAD request');
       // Remove Content-Length header for GET/HEAD requests as they should not have it
-      _request.headers.removeWhere((header) => 
-        header.name.toLowerCase() == 'content-length'
+      _request.headers.removeWhere(
+        (header) => header.name.toLowerCase() == 'content-length',
       );
-      
+
       final builtUrl = _buildUrlWithQueryParams();
-      debugPrint('Query params: ${_queryParams.map((p) => '${p.name}=${p.value}').join(', ')}');
+      debugPrint(
+        'Query params: ${_queryParams.map((p) => '${p.name}=${p.value}').join(', ')}',
+      );
       debugPrint('Built URL: $builtUrl');
       _request.url = builtUrl;
     } else {
@@ -377,30 +433,38 @@ class _ReplayDialogState extends ConsumerState<ReplayDialog> {
                   padding: EdgeInsets.only(bottom: 8),
                   child: SizedBox(
                     height: 20,
-                    child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                    child: Center(
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
                   ),
                 ),
               const SizedBox(height: 8),
               Row(
                 children: [
                   ConstrainedBox(
-                    constraints: const BoxConstraints(minWidth: 100, maxWidth: 120),
+                    constraints: const BoxConstraints(
+                      minWidth: 100,
+                      maxWidth: 120,
+                    ),
                     child: DropdownButtonFormField<String>(
                       initialValue: _request.method,
-                      items: const [
-                        'GET',
-                        'POST',
-                        'PUT',
-                        'PATCH',
-                        'DELETE',
-                        'HEAD',
-                        'OPTIONS',
-                      ].map(
-                        (method) => DropdownMenuItem(
-                          value: method,
-                          child: Text(method),
-                        ),
-                      ).toList(),
+                      items:
+                          const [
+                                'GET',
+                                'POST',
+                                'PUT',
+                                'PATCH',
+                                'DELETE',
+                                'HEAD',
+                                'OPTIONS',
+                              ]
+                              .map(
+                                (method) => DropdownMenuItem(
+                                  value: method,
+                                  child: Text(method),
+                                ),
+                              )
+                              .toList(),
                       onChanged: _updateMethod,
                       decoration: const InputDecoration(
                         labelText: 'Method',
@@ -477,10 +541,13 @@ class _ReplayDialogState extends ConsumerState<ReplayDialog> {
                 onPressed: _addHeader,
               ),
               const SizedBox(height: 16),
-              
+
               // Query Parameters section for GET/HEAD methods
               if (_request.method == 'GET' || _request.method == 'HEAD') ...[
-                const Text('Query Parameters', style: TextStyle(fontWeight: FontWeight.bold)),
+                const Text(
+                  'Query Parameters',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
                 const SizedBox(height: 8),
                 ..._queryParams.asMap().entries.map((entry) {
                   final index = entry.key;
@@ -490,7 +557,11 @@ class _ReplayDialogState extends ConsumerState<ReplayDialog> {
                         flex: 2,
                         child: TextField(
                           controller: _queryParamNameControllers[index],
-                          onChanged: (name) => _updateQueryParam(index, name, _queryParams[index].value),
+                          onChanged: (name) => _updateQueryParam(
+                            index,
+                            name,
+                            _queryParams[index].value,
+                          ),
                           decoration: const InputDecoration(
                             labelText: 'Name',
                             isDense: true,
@@ -504,7 +575,11 @@ class _ReplayDialogState extends ConsumerState<ReplayDialog> {
                         flex: 3,
                         child: TextField(
                           controller: _queryParamValueControllers[index],
-                          onChanged: (value) => _updateQueryParam(index, _queryParams[index].name, value),
+                          onChanged: (value) => _updateQueryParam(
+                            index,
+                            _queryParams[index].name,
+                            value,
+                          ),
                           decoration: const InputDecoration(
                             labelText: 'Value',
                             isDense: true,
@@ -531,11 +606,14 @@ class _ReplayDialogState extends ConsumerState<ReplayDialog> {
                   style: const TextStyle(fontSize: 12, color: Colors.grey),
                 ),
               ],
-              
+
               // Body section for other methods
               if (_request.method != 'GET' && _request.method != 'HEAD') ...[
                 const SizedBox(height: 16),
-                const Text('Body', style: TextStyle(fontWeight: FontWeight.bold)),
+                const Text(
+                  'Body',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
                 const SizedBox(height: 8),
                 Container(
                   height: 200,

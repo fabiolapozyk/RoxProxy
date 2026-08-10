@@ -24,8 +24,11 @@ class CaWarningBanner extends ConsumerWidget {
       color: const Color(0xFFFF9500).withAlpha(30),
       child: Row(
         children: [
-          const Icon(Icons.warning_amber_rounded,
-              color: Color(0xFFFF9500), size: 16),
+          const Icon(
+            Icons.warning_amber_rounded,
+            color: Color(0xFFFF9500),
+            size: 16,
+          ),
           const SizedBox(width: 8),
           const Expanded(
             child: Text(

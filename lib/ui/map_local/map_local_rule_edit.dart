@@ -53,7 +53,7 @@ class _MapLocalRuleEditDialogState extends State<MapLocalRuleEditDialog> {
   late bool _isCaseSensitive;
   late bool _useRegex;
   late final List<({TextEditingController key, TextEditingController value})>
-      _customHeaderControllers;
+  _customHeaderControllers;
 
   bool get _isEditing => widget.initial != null;
 
@@ -65,8 +65,9 @@ class _MapLocalRuleEditDialogState extends State<MapLocalRuleEditDialog> {
     _hostController = TextEditingController(text: r?.hostPattern ?? '*');
     _pathController = TextEditingController(text: r?.pathPattern ?? '**');
     _filePathController = TextEditingController(text: r?.filePath ?? '');
-    _statusCodeController =
-        TextEditingController(text: (r?.statusCode ?? 200).toString());
+    _statusCodeController = TextEditingController(
+      text: (r?.statusCode ?? 200).toString(),
+    );
     _notesController = TextEditingController(text: r?.notes ?? '');
     _httpMethod = r?.httpMethod ?? 'ANY';
     _contentType = r?.contentType;
@@ -75,13 +76,16 @@ class _MapLocalRuleEditDialogState extends State<MapLocalRuleEditDialog> {
     _useRegex = r?.useRegex ?? false;
     _customHeaderControllers = [
       for (final entry in (r?.customHeaders ?? {}).entries)
-        (key: TextEditingController(text: entry.key),
-            value: TextEditingController(text: entry.value)),
+        (
+          key: TextEditingController(text: entry.key),
+          value: TextEditingController(text: entry.value),
+        ),
     ];
     if (_customHeaderControllers.isEmpty) {
-      _customHeaderControllers.add(
-        (key: TextEditingController(), value: TextEditingController()),
-      );
+      _customHeaderControllers.add((
+        key: TextEditingController(),
+        value: TextEditingController(),
+      ));
     }
   }
 
@@ -150,8 +154,10 @@ class _MapLocalRuleEditDialogState extends State<MapLocalRuleEditDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(_isEditing ? 'Edit rule' : 'New rule',
-          style: const TextStyle(fontSize: 15)),
+      title: Text(
+        _isEditing ? 'Edit rule' : 'New rule',
+        style: const TextStyle(fontSize: 15),
+      ),
       content: SizedBox(
         width: 520,
         height: 560,
@@ -162,8 +168,7 @@ class _MapLocalRuleEditDialogState extends State<MapLocalRuleEditDialog> {
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 dense: true,
-                title: const Text('Enabled',
-                    style: TextStyle(fontSize: 13)),
+                title: const Text('Enabled', style: TextStyle(fontSize: 13)),
                 value: _isEnabled,
                 onChanged: (v) => setState(() => _isEnabled = v),
               ),
@@ -239,7 +244,9 @@ class _MapLocalRuleEditDialogState extends State<MapLocalRuleEditDialog> {
                     style: OutlinedButton.styleFrom(
                       textStyle: const TextStyle(fontSize: 12),
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 10),
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
                     ),
                   ),
                 ],
@@ -261,8 +268,10 @@ class _MapLocalRuleEditDialogState extends State<MapLocalRuleEditDialog> {
                     child: SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       dense: true,
-                      title: const Text('Use regex',
-                          style: TextStyle(fontSize: 13)),
+                      title: const Text(
+                        'Use regex',
+                        style: TextStyle(fontSize: 13),
+                      ),
                       value: _useRegex,
                       onChanged: (v) => setState(() => _useRegex = v),
                     ),
@@ -271,8 +280,10 @@ class _MapLocalRuleEditDialogState extends State<MapLocalRuleEditDialog> {
                     child: SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       dense: true,
-                      title: const Text('Case-sensitive path',
-                          style: TextStyle(fontSize: 13)),
+                      title: const Text(
+                        'Case-sensitive path',
+                        style: TextStyle(fontSize: 13),
+                      ),
                       value: _isCaseSensitive,
                       onChanged: (v) => setState(() => _isCaseSensitive = v),
                     ),
@@ -280,11 +291,14 @@ class _MapLocalRuleEditDialogState extends State<MapLocalRuleEditDialog> {
                 ],
               ),
               const SizedBox(height: 12),
-              Text('Custom headers',
-                  style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: Theme.of(context).colorScheme.onSurface)),
+              Text(
+                'Custom headers',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
+              ),
               const SizedBox(height: 4),
               for (var i = 0; i < _customHeaderControllers.length; i++)
                 Padding(
@@ -310,18 +324,19 @@ class _MapLocalRuleEditDialogState extends State<MapLocalRuleEditDialog> {
                       ),
                       const SizedBox(width: 4),
                       IconButton(
-                        icon: const Icon(Icons.remove_circle_outline,
-                            size: 16),
+                        icon: const Icon(Icons.remove_circle_outline, size: 16),
                         onPressed: _customHeaderControllers.length == 1
                             ? null
                             : () => setState(() {
-                                  _customHeaderControllers[i].key.dispose();
-                                  _customHeaderControllers[i].value.dispose();
-                                  _customHeaderControllers.removeAt(i);
-                                }),
+                                _customHeaderControllers[i].key.dispose();
+                                _customHeaderControllers[i].value.dispose();
+                                _customHeaderControllers.removeAt(i);
+                              }),
                         padding: EdgeInsets.zero,
                         constraints: const BoxConstraints(
-                            minWidth: 24, minHeight: 24),
+                          minWidth: 24,
+                          minHeight: 24,
+                        ),
                       ),
                     ],
                   ),
@@ -329,14 +344,20 @@ class _MapLocalRuleEditDialogState extends State<MapLocalRuleEditDialog> {
               Align(
                 alignment: Alignment.centerLeft,
                 child: TextButton.icon(
-                  onPressed: () => setState(() => _customHeaderControllers
-                      .add((key: TextEditingController(),
-                          value: TextEditingController()))),
+                  onPressed: () => setState(
+                    () => _customHeaderControllers.add((
+                      key: TextEditingController(),
+                      value: TextEditingController(),
+                    )),
+                  ),
                   icon: const Icon(Icons.add, size: 14),
-                  label: const Text('Add header',
-                      style: TextStyle(fontSize: 12)),
+                  label: const Text(
+                    'Add header',
+                    style: TextStyle(fontSize: 12),
+                  ),
                   style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 8)),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                  ),
                 ),
               ),
               _field(
@@ -353,10 +374,7 @@ class _MapLocalRuleEditDialogState extends State<MapLocalRuleEditDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
         ),
-        FilledButton(
-          onPressed: _save,
-          child: const Text('Save'),
-        ),
+        FilledButton(onPressed: _save, child: const Text('Save')),
       ],
     );
   }
@@ -383,8 +401,7 @@ class _MapLocalRuleEditDialogState extends State<MapLocalRuleEditDialog> {
         labelStyle: const TextStyle(fontSize: 12),
         hintStyle: const TextStyle(fontSize: 12, color: Colors.grey),
         isDense: true,
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
       );
 }
