@@ -115,6 +115,14 @@ class _BreakpointDialogState extends ConsumerState<BreakpointDialog> {
   Widget build(BuildContext context) {
     final state = ref.watch(breakpointProvider);
 
+    // La richiesta è stata risolta dal core (timeout RF5 o decisione già
+    // gestita altrove): il dialog non può più operare e si chiude da solo.
+    if (state.active?.id != widget.request.id) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.of(context).maybePop();
+      });
+    }
+
     return AlertDialog(
       title: Text(
         'Breakpoint — ${widget.request.method} ${widget.request.host}',

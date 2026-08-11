@@ -12,13 +12,13 @@ class CapturedExchange {
   final String id;
   final DateTime startTime;
   DateTime? endTime;
-  final String method;
-  final String url;
+  String method;
+  String url;
   final String scheme;
   final String host;
   final int port;
-  final String path;
-  final List<HttpHeader> requestHeaders;
+  String path;
+  List<HttpHeader> requestHeaders;
   String? requestBodyRef;
   final int requestSize;
   int? statusCode;
@@ -107,6 +107,12 @@ class CapturedExchange {
 
   /// Merges updated fields from a channel "update" event into this exchange.
   void applyUpdate(CapturedExchange updated) {
+    // La richiesta può essere stata modificata al breakpoint (RF4): metodo,
+    // URL, path e header vengono recepiti così come inviati dal core.
+    method = updated.method;
+    url = updated.url;
+    path = updated.path;
+    requestHeaders = updated.requestHeaders;
     endTime = updated.endTime;
     statusCode = updated.statusCode;
     statusMessage = updated.statusMessage;

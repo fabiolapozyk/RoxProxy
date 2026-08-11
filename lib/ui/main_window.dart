@@ -125,20 +125,26 @@ class _MainWindowState extends ConsumerState<MainWindow> {
       if (isLoaded) _maybeAutoStart();
     });
 
-    // Show the breakpoint dialog automatically when a request is suspended
-    // (one at a time; parallel requests are queued — RF7.1).
+    // Mostra il dialog automaticamente a ogni richiesta sospesa e lo lascia
+    // chiudere da solo quando la richiesta viene risolta (timeout/decisione).
+    // Il defer doppio evita che il dialog del prossimo elemento della coda
+    // venga aperto prima che quello corrente si chiuda (RF7.1).
     ref.listen(breakpointProvider, (prev, next) {
-      final id = next.active?.id;
-      if (id != null && prev?.active?.id != id) {
+      final request = next.active;
+      if (request == null || request.id == prev?.active?.id) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
+          final current = ref.read(breakpointProvider).active;
+          if (current == null || current.id != request.id) return;
           showDialog<void>(
             context: context,
             barrierDismissible: false,
-            builder: (_) => BreakpointDialog(request: next.active!),
+            builder: (_) => BreakpointDialog(request: current),
           );
         });
-      }
+      });
     });
 
     final proxyState = ref.watch(proxyStateProvider);

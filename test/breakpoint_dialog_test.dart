@@ -34,34 +34,73 @@ BreakpointRequest sampleRequest() => BreakpointRequest(
 );
 
 void main() {
-  /// Pumps the dialog after activating the provider with the sample request,
-  /// exactly like the real flow (EventChannel → provider → dialog).
+  /// Pumps the app and opens the dialog via a real route, exactly like the
+  /// real flow (EventChannel → provider → showDialog).
   Future<void> pumpDialog(
     WidgetTester tester,
     FakeBreakpointService fake,
   ) async {
-    fake.controller.add(sampleRequest());
     await tester.pumpWidget(
       ProviderScope(
         overrides: [breakpointServiceProvider.overrideWithValue(fake)],
         child: MaterialApp(
-          home: Scaffold(body: BreakpointDialog(request: sampleRequest())),
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => Center(
+                child: TextButton(
+                  onPressed: () => showDialog<void>(
+                    context: context,
+                    builder: (_) => BreakpointDialog(request: sampleRequest()),
+                  ),
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );
+    // Crea il notifier (e la subscription) prima di emettere l'evento.
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(Scaffold)),
+    );
+    container.read(breakpointProvider.notifier);
+    // Attiva il provider PRIMA di aprire il dialog, come in produzione
+    // (main_window osserva il provider fin dall'avvio).
+    fake.controller.add(sampleRequest());
     await tester.pump();
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
   }
 
   testWidgets('shows request details and countdown', (tester) async {
     final fake = FakeBreakpointService();
     await pumpDialog(tester, fake);
 
+    expect(find.byType(BreakpointDialog), findsOneWidget);
     expect(find.text('Breakpoint — POST example.com'), findsOneWidget);
     expect(find.text('Auto-proceed in 30s'), findsOneWidget);
     expect(find.text('Proceed'), findsOneWidget);
     expect(find.text('Cancel (400)'), findsOneWidget);
     expect(find.text('{"a":1}'), findsOneWidget);
     expect(find.widgetWithText(TextField, 'Content-Type'), findsOneWidget);
+  });
+
+  testWidgets('closes on timeout when the request auto-proceeds', (
+    tester,
+  ) async {
+    final fake = FakeBreakpointService();
+    await pumpDialog(tester, fake);
+    expect(find.byType(BreakpointDialog), findsOneWidget);
+
+    // Scade il countdown UI (30 tick + margine).
+    for (var i = 0; i < 32; i++) {
+      await tester.pump(const Duration(seconds: 1));
+    }
+    await tester.pumpAndSettle();
+
+    expect(find.byType(BreakpointDialog), findsNothing);
+    expect(fake.decisions, isEmpty, reason: 'il timeout non invia decisioni');
   });
 
   testWidgets('proceed sends the modified request', (tester) async {

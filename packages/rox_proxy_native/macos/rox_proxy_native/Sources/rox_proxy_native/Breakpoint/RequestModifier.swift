@@ -47,11 +47,14 @@ enum RequestModifier {
             head.method = HTTPMethod(rawValue: method)
         }
 
-        // URL — path/query only; host/port changes are rejected.
+        // URL — path/query only; host/port changes are rejected. The head URI
+        // is rewritten to the (possibly modified) path so the outbound
+        // forwarder always sends the version the user chose.
         if let urlString = response.modifiedUrl, let url = URL(string: urlString) {
             var path = url.path.isEmpty ? "/" : url.path
             if let query = url.query { path += "?" + query }
             relativePath = path
+            head.uri = path
             if let urlHost = url.host, !urlHost.isEmpty,
                urlHost.lowercased() != host.lowercased() || url.port != nil && url.port != port {
                 ProxyLogger.breakpoint.default(

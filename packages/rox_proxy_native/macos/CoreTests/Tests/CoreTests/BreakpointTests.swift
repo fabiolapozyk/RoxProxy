@@ -182,7 +182,6 @@ final class RequestModifierTests: XCTestCase {
             allocator: allocator
         )
         XCTAssertEqual(result.head.method, .GET)
-        XCTAssertEqual(result.head.uri, "http://example.com/a/b?q=1")
         XCTAssertEqual(result.relativePath, "/a/b?q=1")
         XCTAssertEqual(result.host, "example.com")
         XCTAssertEqual(result.bodyParts.count, 0)
@@ -229,7 +228,8 @@ final class RequestModifierTests: XCTestCase {
             allocator: allocator
         )
         XCTAssertEqual(result.relativePath, "/new/path?x=2")
-        XCTAssertEqual(result.head.uri, "http://example.com/a/b?q=1")
+        // Il URI dell'head viene riscritto: il forwarder MITM lo usa così com'è.
+        XCTAssertEqual(result.head.uri, "/new/path?x=2")
         XCTAssertEqual(result.exchange.path, "/new/path?x=2")
         XCTAssertEqual(result.exchange.url, "http://example.com/new/path?x=2")
         XCTAssertEqual(result.host, "example.com")
