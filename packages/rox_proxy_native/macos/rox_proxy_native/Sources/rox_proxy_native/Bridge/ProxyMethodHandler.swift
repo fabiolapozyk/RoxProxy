@@ -15,6 +15,9 @@ final class ProxyMethodHandler: NSObject {
     let keychainInstaller: KeychainInstaller
     let streamHandler: ExchangeStreamHandler
     let bodyStore: BodyStore
+    let breakpointStreamHandler: BreakpointStreamHandler
+    /// Breakpoint engine created at `startProxy` (nil when disabled).
+    private var breakpointHandler: BreakpointHandler?
 
     init(
         certificateAuthority: CertificateAuthority?,
@@ -22,13 +25,15 @@ final class ProxyMethodHandler: NSObject {
         keychainInstaller: KeychainInstaller,
         streamHandler: ExchangeStreamHandler,
         bodyStore: BodyStore,
-        crashGuard: CrashGuard?
+        crashGuard: CrashGuard?,
+        breakpointStreamHandler: BreakpointStreamHandler
     ) {
         self.certificateAuthority = certificateAuthority
         self.domainCertCache = domainCertCache
         self.keychainInstaller = keychainInstaller
         self.streamHandler = streamHandler
         self.bodyStore = bodyStore
+        self.breakpointStreamHandler = breakpointStreamHandler
         self.crashGuard = crashGuard
     }
 
@@ -50,6 +55,7 @@ final class ProxyMethodHandler: NSObject {
         case "releaseAllBodies": releaseAllBodies(result: result)
         case "decompressBody":  decompressBody(call, result: result)
         case "replayRequest":   replayRequest(call, result: result)
+        case "breakpointDecision": breakpointDecision(call, result: result)
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -81,6 +87,7 @@ final class ProxyMethodHandler: NSObject {
 
         let httpsInterceptionEnabled = args["httpsInterceptionEnabled"] as? Bool ?? true
         let setSystemProxy = args["setSystemProxy"] as? Bool ?? true
+        let breakpointEnabled = args["breakpointEnabled"] as? Bool ?? false
 
         // Parse Map Local rules from Dart
         ProxyLogger.map.debug("Parsing %d Map Local rules", (args["mapLocalRules"] as? [[String: Any]])?.count ?? 0)
@@ -88,9 +95,21 @@ final class ProxyMethodHandler: NSObject {
             MapLocalRule.fromDictionary($0)
         }
 
+        // Breakpoint engine — created only when the feature is enabled (RF1.1).
+        if breakpointEnabled {
+            let handler = BreakpointHandler(
+                matcher: BreakpointMatcher(isEnabled: true),
+                notifier: breakpointStreamHandler
+            )
+            self.breakpointHandler = handler
+            ProxyLogger.breakpoint.info("Breakpoint enabled via Flutter method call")
+        } else {
+            self.breakpointHandler = nil
+        }
+
         ProxyLogger.proxy.debug(
             "%{public}@",
-            "Proxy configuration: port=\(port), timeout=\(timeout), https=\(httpsInterceptionEnabled ? "yes" : "no"), systemProxy=\(setSystemProxy ? "yes" : "no"), mapLocalRules=\(mapLocalRules.count)"
+            "Proxy configuration: port=\(port), timeout=\(timeout), https=\(httpsInterceptionEnabled ? "yes" : "no"), systemProxy=\(setSystemProxy ? "yes" : "no"), mapLocalRules=\(mapLocalRules.count), breakpoints=\(breakpointEnabled ? "yes" : "no")"
         )
 
         let store = BridgeSessionStore(streamHandler: streamHandler, bodyStore: bodyStore)
@@ -102,7 +121,8 @@ final class ProxyMethodHandler: NSObject {
             connectionTimeoutSeconds: timeout,
             certificateAuthority: certificateAuthority,
             domainCertCache: domainCertCache,
-            httpsInterceptionEnabled: httpsInterceptionEnabled
+            httpsInterceptionEnabled: httpsInterceptionEnabled,
+            breakpointHandler: self.breakpointHandler
         )
         self.proxyServer = server
 
@@ -185,6 +205,10 @@ final class ProxyMethodHandler: NSObject {
         systemProxyManager?.disableProxy()
         systemProxyManager = nil
         crashGuard?.clearSentinel()
+
+        // Release every suspended request with auto-proceed (RNF2).
+        breakpointHandler?.releaseAll()
+        breakpointHandler = nil
 
         let server = proxyServer
         proxyServer = nil
@@ -309,6 +333,27 @@ final class ProxyMethodHandler: NSObject {
             ProxyLogger.proxy.error("Decompression failed")
             result(nil)
         }
+    }
+
+    // MARK: - Breakpoint
+
+    /// Receives the user decision (Proceed/Cancel with optional modifications)
+    /// and resolves the suspended request. Never suspends again here: the
+    /// decision is forwarded to the request's event loop (RF3.2).
+    private func breakpointDecision(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let response = BreakpointResponse.fromDictionary(args) else {
+            ProxyLogger.breakpoint.error("Invalid arguments for breakpointDecision")
+            result(FlutterError(code: "INVALID_ARGS", message: "Invalid breakpoint decision", details: nil))
+            return
+        }
+        guard let handler = breakpointHandler else {
+            ProxyLogger.breakpoint.default("breakpointDecision received but breakpoints are disabled")
+            result(["accepted": false])
+            return
+        }
+        handler.resolve(breakpointId: response.breakpointId, response: response)
+        result(["accepted": true])
     }
 
     // MARK: - Replay

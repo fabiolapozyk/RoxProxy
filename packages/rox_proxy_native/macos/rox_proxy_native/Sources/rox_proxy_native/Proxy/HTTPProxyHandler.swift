@@ -36,6 +36,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
     let domainRules: [DomainRule]
     let httpsInterceptionEnabled: Bool
     let mapLocalMatcher: MapLocalMatcher?
+    let breakpointHandler: BreakpointHandler?
 
     init(
         store: BridgeSessionStore,
@@ -43,7 +44,8 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
         domainCertCache: DomainCertificateCache? = nil,
         domainRules: [DomainRule] = [],
         httpsInterceptionEnabled: Bool = true,
-        mapLocalMatcher: MapLocalMatcher? = nil
+        mapLocalMatcher: MapLocalMatcher? = nil,
+        breakpointHandler: BreakpointHandler? = nil
     ) {
         self.store = store
         self.certificateAuthority = certificateAuthority
@@ -51,6 +53,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
         self.domainRules = domainRules
         self.httpsInterceptionEnabled = httpsInterceptionEnabled
         self.mapLocalMatcher = mapLocalMatcher
+        self.breakpointHandler = breakpointHandler
     }
 
     // MARK: - ChannelInboundHandler
@@ -171,12 +174,53 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
             isMITMDecrypted: false
         )
 
+        // Breakpoint interception — suspend the request and wait for the user.
+        // Breakpoints take precedence over Map Local for the same request.
+        let matchPath = URL(string: head.uri)?.path ?? "/"
+        let breakpointMatched = breakpointHandler?
+            .matcher.shouldBreakpointRequest(
+                method: head.method.rawValue, host: target.host, path: matchPath
+            ) ?? false
+        exchange.isBreakpoint = breakpointMatched
+
         let store = self.store
         Task { @MainActor in store.append(exchange) }
 
+        if breakpointMatched, let breakpointHandler {
+            let breakpointRequest = BreakpointRequest(
+                id: UUID().uuidString,
+                exchangeId: exchange.id.uuidString,
+                method: exchange.method,
+                url: exchange.url,
+                headers: exchange.requestHeaders,
+                body: exchange.requestBody?.asString(),
+                timestamp: Date()
+            )
+            let didSuspend = breakpointHandler.suspend(
+                request: breakpointRequest,
+                eventLoop: context.eventLoop
+            ) { [weak self] decision in
+                guard let self else { return }
+                self.handleBreakpointDecision(
+                    decision: decision,
+                    context: context,
+                    head: head,
+                    bodyParts: bodyParts,
+                    target: target,
+                    exchange: exchange
+                )
+            }
+            if didSuspend {
+                ProxyLogger.breakpoint.info(
+                    "Breakpoint: %{public}@ %{public}@ suspended", exchange.method, exchange.url
+                )
+                return
+            }
+            // Notifier unavailable → fall through and forward immediately.
+        }
+
         // Map Local interception — serve a local file instead of forwarding.
         if let matcher = mapLocalMatcher, !matcher.isEmpty {
-            let matchPath = URL(string: head.uri)?.path ?? "/"
             if let rule = matcher.firstMatch(method: head.method.rawValue, host: target.host, path: matchPath) {
                 ProxyLogger.map.info("Map Local: rule %{public}@ matches %{public}@ %{public}@", rule.pathPattern, head.method.rawValue, head.uri)
                 MapLocalHandler.serve(rule: rule, context: context, exchange: exchange, store: store) { [weak self] in
@@ -188,6 +232,25 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
             }
         }
 
+        forwardToUpstream(
+            context: context,
+            head: head,
+            bodyParts: bodyParts,
+            target: target,
+            exchange: exchange
+        )
+    }
+
+    /// Opens the upstream connection and forwards the (possibly modified)
+    /// request, then streams the response back to the client.
+    private func forwardToUpstream(
+        context: ChannelHandlerContext,
+        head: HTTPRequestHead,
+        bodyParts: [ByteBuffer],
+        target: (host: String, port: Int, relativePath: String),
+        exchange: CapturedExchange
+    ) {
+        var exchange = exchange
         // Build outbound request head (absolute URI → relative)
         var outHead = head
         outHead.uri = target.relativePath
@@ -195,6 +258,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
         outHead.headers.remove(name: "Proxy-Authorization")
         outHead.headers.replaceOrAdd(name: "Connection", value: "close")
 
+        let store = self.store
         let onComplete = { [weak self] in
             guard let self else { return }
             _ = context.channel.setOption(ChannelOptions.autoRead, value: true)
@@ -236,6 +300,53 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
                     onComplete()
                 }
             }
+    }
+
+    /// Executed on the request's event loop once the user decides (or the
+    /// timeout fires). Proceed → apply modifications and forward; Cancel →
+    /// respond 400 and mark the exchange cancelled.
+    private func handleBreakpointDecision(
+        decision: BreakpointResponse,
+        context: ChannelHandlerContext,
+        head: HTTPRequestHead,
+        bodyParts: [ByteBuffer],
+        target: (host: String, port: Int, relativePath: String),
+        exchange: CapturedExchange
+    ) {
+        switch decision.action {
+        case .cancel:
+            ProxyLogger.breakpoint.info("Breakpoint: %{public}@ %{public}@ cancelled", exchange.method, exchange.url)
+            var cancelled = exchange
+            cancelled.isBreakpoint = true
+            cancelled.statusCode = 400
+            cancelled.statusMessage = "Bad Request"
+            cancelled.state = .failed("Cancelled by user (breakpoint)")
+            cancelled.endTime = Date()
+            let store = self.store
+            Task { @MainActor in store.update(cancelled) }
+            sendResponse(context: context, status: .badRequest)
+            _ = context.channel.setOption(ChannelOptions.autoRead, value: true)
+            state = .idle
+
+        case .proceed:
+            let modified = RequestModifier.apply(
+                response: decision,
+                originalHead: head,
+                bodyParts: bodyParts,
+                originalHost: target.host,
+                originalPort: target.port,
+                originalRelativePath: target.relativePath,
+                exchange: exchange,
+                allocator: context.channel.allocator
+            )
+            forwardToUpstream(
+                context: context,
+                head: modified.head,
+                bodyParts: modified.bodyParts,
+                target: (host: modified.host, port: modified.port, relativePath: modified.relativePath),
+                exchange: modified.exchange
+            )
+        }
     }
 
     // MARK: - CONNECT
@@ -400,7 +511,11 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
         ProxyLogger.tls.info("MITM TLS interception setup complete for %{public}@:%d", host, port)
         let sslHandler   = NIOSSLServerHandler(context: sslContext)
         let setupHandler = MITMSetupHandler(
-            host: host, port: port, store: store, mapLocalMatcher: mapLocalMatcher
+            host: host,
+            port: port,
+            store: store,
+            mapLocalMatcher: mapLocalMatcher,
+            breakpointHandler: breakpointHandler
         )
 
         // Send 200 OK FIRST while HTTP encoder is still in pipeline

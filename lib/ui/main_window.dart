@@ -5,10 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/map_local_rule.dart';
 import '../models/proxy_settings.dart';
 import '../models/proxy_state.dart';
+import '../providers/breakpoint_provider.dart';
 import '../providers/exchange_provider.dart';
 import '../providers/map_local_provider.dart';
 import '../providers/proxy_control_provider.dart';
 import '../providers/settings_provider.dart';
+import 'breakpoint/breakpoint_dialog.dart';
 import 'components/ca_warning_banner.dart';
 import 'components/status_bar.dart';
 import 'detail/detail_view.dart';
@@ -26,6 +28,7 @@ class _MainWindowState extends ConsumerState<MainWindow> {
   bool _autoStartDone = false;
   List<String>? _lastDomainRuleIds;
   List<String>? _lastMapLocalRuleKeys;
+  bool? _lastBreakpointEnabled;
   double _listWidth = 520;
 
   @override
@@ -87,6 +90,20 @@ class _MainWindowState extends ConsumerState<MainWindow> {
     _lastMapLocalRuleKeys = currentKeys;
   }
 
+  /// Restarts the proxy whenever the breakpoint toggle changes while the
+  /// proxy is running, so the feature takes effect immediately.
+  void _maybeRestartForBreakpointChange(ProxySettings settings) {
+    if (!ref.read(settingsLoadedProvider)) return;
+    final proxyState = ref.read(proxyStateProvider);
+    if (proxyState.isRunning &&
+        _lastBreakpointEnabled != null &&
+        _lastBreakpointEnabled != settings.breakpointEnabled) {
+      final notifier = ref.read(proxyStateProvider.notifier);
+      notifier.stop().then((_) => notifier.start(settings));
+    }
+    _lastBreakpointEnabled = settings.breakpointEnabled;
+  }
+
   static String _ruleKey(MapLocalRule r) =>
       '${r.id}:${r.isEnabled}:${r.hostPattern}:${r.pathPattern}:'
       '${r.httpMethod}:${r.filePath}:${r.statusCode}:${r.contentType}:'
@@ -108,6 +125,22 @@ class _MainWindowState extends ConsumerState<MainWindow> {
       if (isLoaded) _maybeAutoStart();
     });
 
+    // Show the breakpoint dialog automatically when a request is suspended
+    // (one at a time; parallel requests are queued — RF7.1).
+    ref.listen(breakpointProvider, (prev, next) {
+      final id = next.active?.id;
+      if (id != null && prev?.active?.id != id) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          showDialog<void>(
+            context: context,
+            barrierDismissible: false,
+            builder: (_) => BreakpointDialog(request: next.active!),
+          );
+        });
+      }
+    });
+
     final proxyState = ref.watch(proxyStateProvider);
     final filterText = ref.watch(filterTextProvider);
     final exchanges = ref.watch(exchangeListProvider);
@@ -116,13 +149,16 @@ class _MainWindowState extends ConsumerState<MainWindow> {
     final mapLocalRules = ref.watch(mapLocalProvider);
     final httpsEnabled = settings.httpsInterceptionEnabled;
 
-    // Restart proxy if domain rules, Map Local rules or HTTPS interception
-    // flag changed while running
+    // Restart proxy if domain rules, Map Local rules, HTTPS interception
+    // flag or breakpoints changed while running
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => _maybeRestartForRuleChange(settings),
     );
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => _maybeRestartForMapLocalChange(mapLocalRules),
+    );
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _maybeRestartForBreakpointChange(settings),
     );
 
     return Scaffold(

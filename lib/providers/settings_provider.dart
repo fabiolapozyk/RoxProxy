@@ -66,6 +66,11 @@ class SettingsNotifier extends StateNotifier<ProxySettings> {
     _save();
   }
 
+  void setBreakpointEnabled(bool value) {
+    state = state.copyWith(breakpointEnabled: value);
+    _save();
+  }
+
   void setSetSystemProxy(bool value) {
     state = state.copyWith(setSystemProxy: value);
     _save();

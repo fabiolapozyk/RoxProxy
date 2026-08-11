@@ -23,6 +23,7 @@ public class RoxProxyNativePlugin: NSObject, FlutterPlugin {
         let streamHandler = ExchangeStreamHandler()
         let bodyStore = BodyStore()
         let keychainInstaller = KeychainInstaller()
+        let breakpointStreamHandler = BreakpointStreamHandler()
 
         // 3. CrashGuard: recover from previous crash, install signal handlers
         ProxyLogger.crashGuard.info("Initializing CrashGuard")
@@ -51,7 +52,8 @@ public class RoxProxyNativePlugin: NSObject, FlutterPlugin {
             keychainInstaller: keychainInstaller,
             streamHandler: streamHandler,
             bodyStore: bodyStore,
-            crashGuard: crashGuard
+            crashGuard: crashGuard,
+            breakpointStreamHandler: breakpointStreamHandler
         )
         Self.methodHandler = handler
 
@@ -60,6 +62,11 @@ public class RoxProxyNativePlugin: NSObject, FlutterPlugin {
         let instance = RoxProxyNativePlugin()
         registrar.addMethodCallDelegate(instance, channel: methodChannel)
         eventChannel.setStreamHandler(streamHandler)
+        let breakpointEventChannel = FlutterEventChannel(
+            name: "com.roxproxy/breakpointEvents",
+            binaryMessenger: registrar.messenger
+        )
+        breakpointEventChannel.setStreamHandler(breakpointStreamHandler)
 
         // 7. Clean shutdown on app termination
         ProxyLogger.proxy.debug("Registering termination notification handler")

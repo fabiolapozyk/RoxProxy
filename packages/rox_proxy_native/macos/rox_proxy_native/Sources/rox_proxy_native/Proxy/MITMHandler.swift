@@ -18,12 +18,20 @@ final class MITMSetupHandler: ChannelInboundHandler, RemovableChannelHandler {
     let port: Int
     let store: BridgeSessionStore
     let mapLocalMatcher: MapLocalMatcher?
+    let breakpointHandler: BreakpointHandler?
 
-    init(host: String, port: Int, store: BridgeSessionStore, mapLocalMatcher: MapLocalMatcher? = nil) {
+    init(
+        host: String,
+        port: Int,
+        store: BridgeSessionStore,
+        mapLocalMatcher: MapLocalMatcher? = nil,
+        breakpointHandler: BreakpointHandler? = nil
+    ) {
         self.host = host
         self.port = port
         self.store = store
         self.mapLocalMatcher = mapLocalMatcher
+        self.breakpointHandler = breakpointHandler
     }
 
     func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
@@ -45,6 +53,7 @@ final class MITMSetupHandler: ChannelInboundHandler, RemovableChannelHandler {
         let port = self.port
         let store = self.store
         let mapLocalMatcher = self.mapLocalMatcher
+        let breakpointHandler = self.breakpointHandler
 
         // Insert handlers after self (i.e. at .last), then remove self.
         // Pipeline after upgrade: NIOSSLServerHandler → HTTPRequestDecoder
@@ -63,7 +72,13 @@ final class MITMSetupHandler: ChannelInboundHandler, RemovableChannelHandler {
         }
         .flatMap {
             pipeline.addHandler(
-                MITMHandler(host: host, port: port, store: store, mapLocalMatcher: mapLocalMatcher),
+                MITMHandler(
+                    host: host,
+                    port: port,
+                    store: store,
+                    mapLocalMatcher: mapLocalMatcher,
+                    breakpointHandler: breakpointHandler
+                ),
                 name: "MITMHandler",
                 position: .last
             )
@@ -97,12 +112,20 @@ final class MITMHandler: ChannelInboundHandler {
     let port: Int
     let store: BridgeSessionStore
     let mapLocalMatcher: MapLocalMatcher?
+    let breakpointHandler: BreakpointHandler?
 
-    init(host: String, port: Int, store: BridgeSessionStore, mapLocalMatcher: MapLocalMatcher? = nil) {
+    init(
+        host: String,
+        port: Int,
+        store: BridgeSessionStore,
+        mapLocalMatcher: MapLocalMatcher? = nil,
+        breakpointHandler: BreakpointHandler? = nil
+    ) {
         self.host = host
         self.port = port
         self.store = store
         self.mapLocalMatcher = mapLocalMatcher
+        self.breakpointHandler = breakpointHandler
     }
 
     // MARK: - ChannelInboundHandler
@@ -175,9 +198,49 @@ final class MITMHandler: ChannelInboundHandler {
         let store = self.store
         Task { @MainActor in store.append(exchange) }
 
+        // Breakpoint interception — suspend the request and wait for the user.
+        // Breakpoints take precedence over Map Local for the same request.
+        let matchPath = URL(string: head.uri)?.path ?? "/"
+        let breakpointMatched = breakpointHandler?
+            .matcher.shouldBreakpointRequest(
+                method: head.method.rawValue, host: host, path: matchPath
+            ) ?? false
+        exchange.isBreakpoint = breakpointMatched
+
+        if breakpointMatched, let breakpointHandler {
+            let breakpointRequest = BreakpointRequest(
+                id: UUID().uuidString,
+                exchangeId: exchange.id.uuidString,
+                method: exchange.method,
+                url: exchange.url,
+                headers: exchange.requestHeaders,
+                body: exchange.requestBody?.asString(),
+                timestamp: Date()
+            )
+            let didSuspend = breakpointHandler.suspend(
+                request: breakpointRequest,
+                eventLoop: context.eventLoop
+            ) { [weak self] decision in
+                guard let self else { return }
+                self.handleBreakpointDecision(
+                    decision: decision,
+                    context: context,
+                    head: head,
+                    bodyParts: bodyParts,
+                    exchange: exchange
+                )
+            }
+            if didSuspend {
+                ProxyLogger.breakpoint.info(
+                    "Breakpoint: %{public}@ %{public}@ suspended", exchange.method, exchange.url
+                )
+                return
+            }
+            // Notifier unavailable → fall through and forward immediately.
+        }
+
         // Map Local interception — serve a local file instead of forwarding.
         if let matcher = mapLocalMatcher, !matcher.isEmpty {
-            let matchPath = URL(string: head.uri)?.path ?? "/"
             if let rule = matcher.firstMatch(method: head.method.rawValue, host: host, path: matchPath) {
                 ProxyLogger.map.info("Map Local (HTTPS): rule %{public}@ matches %{public}@ %{public}@", rule.pathPattern, head.method.rawValue, head.uri)
                 MapLocalHandler.serve(rule: rule, context: context, exchange: exchange, store: store) { [weak self] in
@@ -188,6 +251,18 @@ final class MITMHandler: ChannelInboundHandler {
             }
         }
 
+        forwardToUpstream(context: context, head: head, bodyParts: bodyParts, exchange: exchange)
+    }
+
+    /// Opens the upstream TLS connection and forwards the (possibly modified)
+    /// request, then streams the response back to the client.
+    private func forwardToUpstream(
+        context: ChannelHandlerContext,
+        head: HTTPRequestHead,
+        bodyParts: [ByteBuffer],
+        exchange: CapturedExchange
+    ) {
+        var exchange = exchange
         // Normalise URI to relative path (some clients send absolute URIs)
         var outHead = head
         if outHead.uri.hasPrefix("https://") || outHead.uri.hasPrefix("http://") {
@@ -202,6 +277,7 @@ final class MITMHandler: ChannelInboundHandler {
         outHead.headers.replaceOrAdd(name: "Connection", value: "close")
         outHead.headers.replaceOrAdd(name: "Host", value: host)
 
+        let store = self.store
         let onComplete = { [weak self] in
             guard let self else { return }
             _ = context.channel.setOption(ChannelOptions.autoRead, value: true)
@@ -225,11 +301,12 @@ final class MITMHandler: ChannelInboundHandler {
             return
         }
 
-        let host = self.host
+        let upstreamHost = host
+        let upstreamPort = port
         ClientBootstrap(group: context.eventLoop)
             .channelInitializer { channel in
                 do {
-                    let ssl = try NIOSSLClientHandler(context: sslContext, serverHostname: host)
+                    let ssl = try NIOSSLClientHandler(context: sslContext, serverHostname: upstreamHost)
                     return channel.pipeline.addHandler(ssl)
                         .flatMap { channel.pipeline.addHTTPClientHandlers() }
                         .flatMap {
@@ -246,7 +323,7 @@ final class MITMHandler: ChannelInboundHandler {
                     return channel.eventLoop.makeFailedFuture(error)
                 }
             }
-            .connect(host: host, port: port)
+            .connect(host: upstreamHost, port: upstreamPort)
             .whenComplete { [weak self] result in
                 guard let self = self else { return }
                 ProxyLogger.http.debug("MITMHandler: upstream connection result for %{public}@:%d", self.host, self.port)
@@ -266,13 +343,55 @@ final class MITMHandler: ChannelInboundHandler {
                 case .failure(let error):
                     ProxyLogger.http.error("MITMHandler: upstream connection failed to %{public}@:%d: %{public}@", self.host, self.port, "\(error)")
                     var failed = exchange
-                    failed.state   = .failed(friendlyConnectionError(error, host: host))
+                    failed.state   = .failed(friendlyConnectionError(error, host: upstreamHost))
                     failed.endTime = Date()
                     Task { @MainActor in store.update(failed) }
                     self.sendError(context: context, status: .badGateway)
                     onComplete()
                 }
             }
+    }
+
+    /// Executed on the request's event loop once the user decides (or the
+    /// timeout fires). Proceed → apply modifications and forward; Cancel →
+    /// respond 400 and mark the exchange cancelled. The MITM host is pinned
+    /// (RF4.3): host changes in the modified URL are ignored.
+    private func handleBreakpointDecision(
+        decision: BreakpointResponse,
+        context: ChannelHandlerContext,
+        head: HTTPRequestHead,
+        bodyParts: [ByteBuffer],
+        exchange: CapturedExchange
+    ) {
+        switch decision.action {
+        case .cancel:
+            ProxyLogger.breakpoint.info("Breakpoint: %{public}@ %{public}@ cancelled", exchange.method, exchange.url)
+            var cancelled = exchange
+            cancelled.isBreakpoint = true
+            cancelled.statusCode = 400
+            cancelled.statusMessage = "Bad Request"
+            cancelled.state = .failed("Cancelled by user (breakpoint)")
+            cancelled.endTime = Date()
+            let store = self.store
+            Task { @MainActor in store.update(cancelled) }
+            sendError(context: context, status: .badRequest)
+            _ = context.channel.setOption(ChannelOptions.autoRead, value: true)
+            state = .idle
+
+        case .proceed:
+            let modified = RequestModifier.apply(
+                response: decision,
+                originalHead: head,
+                bodyParts: bodyParts,
+                originalHost: host,
+                originalPort: port,
+                originalRelativePath: head.uri,
+                exchange: exchange,
+                allocator: context.channel.allocator,
+                fixedHost: host
+            )
+            forwardToUpstream(context: context, head: modified.head, bodyParts: modified.bodyParts, exchange: modified.exchange)
+        }
     }
 
     // MARK: - Helpers

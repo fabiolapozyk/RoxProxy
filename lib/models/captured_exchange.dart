@@ -29,6 +29,7 @@ class CapturedExchange {
   final bool isHTTPS;
   final bool isMITMDecrypted;
   final bool isMapLocal;
+  final bool isBreakpoint;
   ExchangeState state;
   String? errorMessage;
 
@@ -64,6 +65,7 @@ class CapturedExchange {
     required this.isHTTPS,
     required this.isMITMDecrypted,
     this.isMapLocal = false,
+    this.isBreakpoint = false,
     this.state = ExchangeState.inProgress,
     this.errorMessage,
   });
@@ -97,6 +99,7 @@ class CapturedExchange {
       isHTTPS: map['isHTTPS'] as bool,
       isMITMDecrypted: map['isMITMDecrypted'] as bool,
       isMapLocal: map['isMapLocal'] as bool? ?? false,
+      isBreakpoint: map['isBreakpoint'] as bool? ?? false,
       state: _parseState(map['state'] as String),
       errorMessage: map['errorMessage'] as String?,
     );

@@ -19,6 +19,8 @@ final class ProxyServer {
     private let httpsInterceptionEnabled: Bool
     // Snapshot of Map Local rules taken at start time.
     private let mapLocalRules: [MapLocalRule]
+    /// Breakpoint engine (nil when the feature is disabled).
+    private let breakpointHandler: BreakpointHandler?
 
     private var channel: Channel?
     private var group: MultiThreadedEventLoopGroup?
@@ -34,7 +36,8 @@ final class ProxyServer {
         connectionTimeoutSeconds: Int = 30,
         certificateAuthority: CertificateAuthority? = nil,
         domainCertCache: DomainCertificateCache? = nil,
-        httpsInterceptionEnabled: Bool = true
+        httpsInterceptionEnabled: Bool = true,
+        breakpointHandler: BreakpointHandler? = nil
     ) {
         self.port = port
         self.store = store
@@ -44,6 +47,7 @@ final class ProxyServer {
         self.domainRules = domainRules
         self.mapLocalRules = mapLocalRules
         self.httpsInterceptionEnabled = httpsInterceptionEnabled
+        self.breakpointHandler = breakpointHandler
     }
 
     // MARK: - Lifecycle
@@ -65,8 +69,15 @@ final class ProxyServer {
         let timeoutSecs   = self.connectionTimeoutSeconds
         let httpsEnabled  = self.httpsInterceptionEnabled
         let mapLocal      = MapLocalMatcher(rules: self.mapLocalRules)
+        let breakpoints   = self.breakpointHandler
         if !mapLocal.isEmpty {
             ProxyLogger.map.info("Map Local: %d enabled rule(s) loaded", self.mapLocalRules.filter(\.isEnabled).count)
+        }
+        if let breakpoints, breakpoints.matcher.isEnabled {
+            ProxyLogger.breakpoint.info(
+                "Breakpoint: enabled (timeout %llds)",
+                BreakpointHandler.defaultTimeout.nanoseconds / 1_000_000_000
+            )
         }
 
         let bootstrap = ServerBootstrap(group: group)
@@ -89,7 +100,8 @@ final class ProxyServer {
                                 domainCertCache: certCache,
                                 domainRules: domainRules,
                                 httpsInterceptionEnabled: httpsEnabled,
-                                mapLocalMatcher: mapLocal
+                                mapLocalMatcher: mapLocal,
+                                breakpointHandler: breakpoints
                             ),
                             name: "HTTPProxyHandler"
                         )

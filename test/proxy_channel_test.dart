@@ -31,6 +31,7 @@ void main() {
             expect((call.arguments as Map)['connectionTimeoutSeconds'], 30);
             expect((call.arguments as Map)['setSystemProxy'], false);
             expect((call.arguments as Map)['httpsInterceptionEnabled'], true);
+            expect((call.arguments as Map)['breakpointEnabled'], false);
             expect((call.arguments as Map)['domainRules'], isA<List>());
             return {'port': 8888};
           });
@@ -108,6 +109,25 @@ void main() {
         httpsInterceptionEnabled: true,
       );
       expect(capturedArgs!['mapLocalRules'], isEmpty);
+    });
+
+    test('startProxy forwards the breakpointEnabled flag', () async {
+      Map<String, dynamic>? capturedArgs;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(controlChannel, (call) async {
+            capturedArgs = Map<String, dynamic>.from(call.arguments as Map);
+            return {'port': 8080};
+          });
+
+      await proxyChannel.startProxy(
+        port: 8080,
+        domainRules: const [],
+        connectionTimeoutSeconds: 30,
+        setSystemProxy: true,
+        httpsInterceptionEnabled: true,
+        breakpointEnabled: true,
+      );
+      expect(capturedArgs!['breakpointEnabled'], isTrue);
     });
 
     test('startProxy should fall back to the requested port', () async {

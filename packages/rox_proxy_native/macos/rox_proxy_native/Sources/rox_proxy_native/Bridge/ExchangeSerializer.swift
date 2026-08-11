@@ -29,6 +29,7 @@ enum ExchangeSerializer {
             "isHTTPS":          exchange.isHTTPS,
             "isMITMDecrypted":  exchange.isMITMDecrypted,
             "isMapLocal":       exchange.isMapLocal,
+            "isBreakpoint":     exchange.isBreakpoint,
             "state":            stateString(exchange.state),
             "errorMessage":     errorMessage(exchange.state) as Any?,
         ]

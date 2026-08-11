@@ -43,6 +43,7 @@ class ProxyChannel {
     required bool setSystemProxy,
     required bool httpsInterceptionEnabled,
     List<MapLocalRule> mapLocalRules = const [],
+    bool breakpointEnabled = false,
   }) async {
     final result = await _method.invokeMethod<Map>('startProxy', {
       'port': port,
@@ -51,6 +52,7 @@ class ProxyChannel {
       'connectionTimeoutSeconds': connectionTimeoutSeconds,
       'setSystemProxy': setSystemProxy,
       'httpsInterceptionEnabled': httpsInterceptionEnabled,
+      'breakpointEnabled': breakpointEnabled,
     });
     return (result?['port'] as int?) ?? port;
   }
