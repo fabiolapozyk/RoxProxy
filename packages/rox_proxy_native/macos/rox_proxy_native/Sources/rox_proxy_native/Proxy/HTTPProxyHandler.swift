@@ -259,6 +259,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
         outHead.headers.replaceOrAdd(name: "Connection", value: "close")
 
         let store = self.store
+        let breakpointHandler = self.breakpointHandler
         let onComplete = { [weak self] in
             guard let self else { return }
             _ = context.channel.setOption(ChannelOptions.autoRead, value: true)
@@ -274,7 +275,8 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
                             inboundContext: context,
                             store: store,
                             exchange: exchange,
-                            onComplete: onComplete
+                            onComplete: onComplete,
+                            breakpointHandler: breakpointHandler
                         )
                     )
                 }

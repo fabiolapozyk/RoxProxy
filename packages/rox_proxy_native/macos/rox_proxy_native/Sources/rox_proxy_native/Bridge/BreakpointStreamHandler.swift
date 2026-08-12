@@ -19,11 +19,20 @@ final class BreakpointStreamHandler: NSObject, FlutterStreamHandler, BreakpointH
     /// an active sink (degradazione graziosa).
     var isAvailable: Bool { eventSink != nil }
 
-    func breakpointSuspended(_ request: BreakpointRequest) {
+    func requestSuspended(_ request: BreakpointRequest) {
         guard let sink = eventSink else { return }
         let dict: [String: Any] = [
-            "type": "breakpoint",
+            "type": "request",
             "request": request.toDictionary(),
+        ]
+        sink(dict)
+    }
+
+    func responseSuspended(_ response: ResponseBreakpoint) {
+        guard let sink = eventSink else { return }
+        let dict: [String: Any] = [
+            "type": "response",
+            "response": response.toDictionary(),
         ]
         sink(dict)
     }

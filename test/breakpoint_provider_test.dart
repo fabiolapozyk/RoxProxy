@@ -3,18 +3,20 @@ import 'dart:async';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:rox_proxy/models/breakpoint_notification.dart';
 import 'package:rox_proxy/models/breakpoint_request.dart';
 import 'package:rox_proxy/models/breakpoint_response.dart';
+import 'package:rox_proxy/models/response_breakpoint.dart';
 import 'package:rox_proxy/providers/breakpoint_provider.dart';
 import 'package:rox_proxy/services/breakpoint_service.dart';
 
-/// Fake service: emits requests from a controller and records decisions.
+/// Fake service: emits notifications from a controller and records decisions.
 class FakeBreakpointService extends BreakpointService {
-  final controller = StreamController<BreakpointRequest>();
+  final controller = StreamController<BreakpointNotification>();
   final decisions = <BreakpointResponse>[];
 
   @override
-  Stream<BreakpointRequest> get breakpointStream => controller.stream;
+  Stream<BreakpointNotification> get breakpointStream => controller.stream;
 
   @override
   Future<void> sendDecision(BreakpointResponse response) async {
@@ -22,14 +24,31 @@ class FakeBreakpointService extends BreakpointService {
   }
 }
 
-BreakpointRequest request(String id) => BreakpointRequest(
-  id: id,
-  exchangeId: 'ex-$id',
-  method: 'GET',
-  url: 'https://example.com/$id',
-  headers: const [],
-  timestamp: DateTime.now(),
-);
+RequestBreakpointNotification requestNotification(String id) =>
+    RequestBreakpointNotification(
+      BreakpointRequest(
+        id: id,
+        exchangeId: 'ex-$id',
+        method: 'GET',
+        url: 'https://example.com/$id',
+        headers: const [],
+        timestamp: DateTime.now(),
+      ),
+    );
+
+ResponseBreakpointNotification responseNotification(String id) =>
+    ResponseBreakpointNotification(
+      ResponseBreakpoint(
+        id: id,
+        exchangeId: 'ex-$id',
+        method: 'GET',
+        url: 'https://example.com/$id',
+        statusCode: 200,
+        statusMessage: 'OK',
+        headers: const [],
+        timestamp: DateTime.now(),
+      ),
+    );
 
 void main() {
   test('notification activates the dialog state', () async {
@@ -41,11 +60,12 @@ void main() {
     // Istanzia il notifier (e la subscription) prima di emettere eventi.
     container.read(breakpointProvider.notifier);
 
-    fake.controller.add(request('a'));
+    fake.controller.add(requestNotification('a'));
     await Future<void>.delayed(Duration.zero);
 
     final state = container.read(breakpointProvider);
     expect(state.active?.id, 'a');
+    expect(state.active, isA<RequestBreakpointNotification>());
     expect(state.remainingSeconds, BreakpointNotifier.timeoutSeconds);
   });
 
@@ -57,19 +77,19 @@ void main() {
     addTearDown(container.dispose);
     container.read(breakpointProvider.notifier);
 
-    fake.controller.add(request('a'));
-    fake.controller.add(request('b'));
-    fake.controller.add(request('c'));
+    fake.controller.add(requestNotification('a'));
+    fake.controller.add(responseNotification('b'));
+    fake.controller.add(requestNotification('c'));
     await Future<void>.delayed(Duration.zero);
 
     var state = container.read(breakpointProvider);
     expect(state.active?.id, 'a');
-    expect(state.queue.map((r) => r.id), ['b', 'c']);
+    expect(state.queue.map((n) => n.id), ['b', 'c']);
 
     await container.read(breakpointProvider.notifier).cancel();
     state = container.read(breakpointProvider);
-    expect(state.active?.id, 'b');
-    expect(state.queue.map((r) => r.id), ['c']);
+    expect(state.active, isA<ResponseBreakpointNotification>());
+    expect(state.queue.map((n) => n.id), ['c']);
   });
 
   test('proceed sends the decision with modifications and advances', () async {
@@ -80,7 +100,7 @@ void main() {
     addTearDown(container.dispose);
     container.read(breakpointProvider.notifier);
 
-    fake.controller.add(request('a'));
+    fake.controller.add(requestNotification('a'));
     await Future<void>.delayed(Duration.zero);
 
     await container
@@ -101,6 +121,26 @@ void main() {
     expect(container.read(breakpointProvider).active, isNull);
   });
 
+  test('proceedResponse forwards the response as-is', () async {
+    final fake = FakeBreakpointService();
+    final container = ProviderContainer(
+      overrides: [breakpointServiceProvider.overrideWithValue(fake)],
+    );
+    addTearDown(container.dispose);
+    container.read(breakpointProvider.notifier);
+
+    fake.controller.add(responseNotification('r'));
+    await Future<void>.delayed(Duration.zero);
+
+    await container.read(breakpointProvider.notifier).proceedResponse();
+
+    final decision = fake.decisions.single;
+    expect(decision.breakpointId, 'r');
+    expect(decision.action, BreakpointAction.proceed);
+    expect(decision.modifiedMethod, isNull);
+    expect(container.read(breakpointProvider).active, isNull);
+  });
+
   test('cancel sends the cancel decision', () async {
     final fake = FakeBreakpointService();
     final container = ProviderContainer(
@@ -109,7 +149,7 @@ void main() {
     addTearDown(container.dispose);
     container.read(breakpointProvider.notifier);
 
-    fake.controller.add(request('a'));
+    fake.controller.add(requestNotification('a'));
     await Future<void>.delayed(Duration.zero);
 
     await container.read(breakpointProvider.notifier).cancel();
@@ -128,7 +168,7 @@ void main() {
       addTearDown(container.dispose);
       container.read(breakpointProvider.notifier);
 
-      fake.controller.add(request('a'));
+      fake.controller.add(requestNotification('a'));
       async.flushMicrotasks();
 
       expect(container.read(breakpointProvider).active?.id, 'a');

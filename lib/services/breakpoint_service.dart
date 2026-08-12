@@ -2,11 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 
+import '../models/breakpoint_notification.dart';
 import '../models/breakpoint_request.dart';
 import '../models/breakpoint_response.dart';
+import '../models/response_breakpoint.dart';
 
 /// Client dei canali per i breakpoint (RF6):
 /// - notifiche in arrivo su EventChannel `com.roxproxy/breakpointEvents`
+///   (richieste e risposte sospese)
 /// - decisioni inviate sul MethodChannel esistente `com.roxproxy/control`
 ///   (metodo `breakpointDecision`).
 ///
@@ -15,13 +18,24 @@ class BreakpointService {
   static const _events = EventChannel('com.roxproxy/breakpointEvents');
   static const _control = MethodChannel('com.roxproxy/control');
 
-  Stream<BreakpointRequest>? _stream;
+  Stream<BreakpointNotification>? _stream;
 
-  Stream<BreakpointRequest> get breakpointStream {
+  Stream<BreakpointNotification> get breakpointStream {
     _stream ??= _events.receiveBroadcastStream().map((raw) {
       final map = Map<Object?, Object?>.from(raw as Map);
-      final request = Map<Object?, Object?>.from(map['request'] as Map);
-      return BreakpointRequest.fromMap(request);
+      final type = map['type'] as String;
+      if (type == 'response') {
+        return ResponseBreakpointNotification(
+          ResponseBreakpoint.fromMap(
+            Map<Object?, Object?>.from(map['response'] as Map),
+          ),
+        );
+      }
+      return RequestBreakpointNotification(
+        BreakpointRequest.fromMap(
+          Map<Object?, Object?>.from(map['request'] as Map),
+        ),
+      );
     });
     return _stream!;
   }

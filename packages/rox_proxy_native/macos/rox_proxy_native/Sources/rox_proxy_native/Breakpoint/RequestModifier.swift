@@ -9,7 +9,7 @@ enum RequestModifier {
     struct Result {
         var head: HTTPRequestHead
         var bodyParts: [ByteBuffer]
-        /// Upstream target after the decision (host never changes in v1).
+        /// Upstream target after the decision (host/port changes supported).
         var host: String
         var port: Int
         /// Path + query sent upstream.
@@ -18,11 +18,11 @@ enum RequestModifier {
         var exchange: CapturedExchange
     }
 
-    /// Applies method, URL (path/query), headers and body modifications.
+    /// Applies method, URL (path/query + host/port) and header/body changes.
     ///
-    /// Host changes are never applied in v1 (RF4.3): with `fixedHost` set
-    /// (MITM) the host is pinned; otherwise a different host in the modified
-    /// URL is logged and ignored. Only the path/query part of the URL is used.
+    /// Scheme changes are rejected (e.g. http→https would need a different
+    /// connection type); host/port changes are applied and reflected in the
+    /// Host header and the exchange record.
     static func apply(
         response: BreakpointResponse,
         originalHead: HTTPRequestHead,
@@ -31,14 +31,13 @@ enum RequestModifier {
         originalPort: Int,
         originalRelativePath: String,
         exchange: CapturedExchange,
-        allocator: ByteBufferAllocator,
-        fixedHost: String? = nil
+        allocator: ByteBufferAllocator
     ) -> Result {
         var head = originalHead
         var newBodyParts = bodyParts
         var relativePath = originalRelativePath
-        let host = fixedHost ?? originalHost
-        let port = originalPort
+        var targetHost = originalHost
+        var targetPort = originalPort
 
         // Method — never allow CONNECT through the modified path.
         if let method = response.modifiedMethod?
@@ -47,20 +46,30 @@ enum RequestModifier {
             head.method = HTTPMethod(rawValue: method)
         }
 
-        // URL — path/query only; host/port changes are rejected. The head URI
-        // is rewritten to the (possibly modified) path so the outbound
-        // forwarder always sends the version the user chose.
+        // URL — path/query + host/port. The head URI is rewritten so the
+        // outbound forwarder always sends the version the user chose.
         if let urlString = response.modifiedUrl, let url = URL(string: urlString) {
             var path = url.path.isEmpty ? "/" : url.path
             if let query = url.query { path += "?" + query }
             relativePath = path
             head.uri = path
-            if let urlHost = url.host, !urlHost.isEmpty,
-               urlHost.lowercased() != host.lowercased() || url.port != nil && url.port != port {
+
+            let targetScheme = url.scheme?.lowercased() ?? exchange.scheme
+            if targetScheme != exchange.scheme {
                 ProxyLogger.breakpoint.default(
-                    "Breakpoint: host/port change in %{public}@ ignored (not supported in v1)",
-                    urlString
+                    "Breakpoint: scheme change in %{public}@ ignored", urlString
                 )
+            } else if let urlHost = url.host, !urlHost.isEmpty {
+                let defaultPort = targetScheme == "https" ? 443 : 80
+                let newPort = url.port ?? defaultPort
+                if urlHost.lowercased() != targetHost.lowercased() || newPort != targetPort {
+                    ProxyLogger.breakpoint.info(
+                        "Breakpoint: target changed to %{public}@:%d", urlHost, newPort
+                    )
+                    targetHost = urlHost
+                    targetPort = newPort
+                    head.headers.replaceOrAdd(name: "Host", value: urlHost)
+                }
             }
         }
 
@@ -76,7 +85,7 @@ enum RequestModifier {
                 newHeaders.add(name: name, value: value)
             }
             head.headers = newHeaders
-            head.headers.replaceOrAdd(name: "Host", value: host)
+            head.headers.replaceOrAdd(name: "Host", value: targetHost)
             // Body is unchanged: restore the framing headers that were
             // stripped as protected.
             if response.modifiedBody == nil {
@@ -101,7 +110,9 @@ enum RequestModifier {
         var updated = exchange
         updated.isBreakpoint = true
         updated.method = head.method.rawValue
-        updated.url = Self.absoluteURL(scheme: exchange.scheme, host: host, port: port, path: relativePath)
+        updated.host = targetHost
+        updated.port = targetPort
+        updated.url = Self.absoluteURL(scheme: exchange.scheme, host: targetHost, port: targetPort, path: relativePath)
         updated.path = relativePath
         updated.requestHeaders = head.headers.map { (name: $0.name, value: $0.value) }
         if let bodyString = response.modifiedBody {
@@ -112,8 +123,8 @@ enum RequestModifier {
         return Result(
             head: head,
             bodyParts: newBodyParts,
-            host: host,
-            port: port,
+            host: targetHost,
+            port: targetPort,
             relativePath: relativePath,
             exchange: updated
         )

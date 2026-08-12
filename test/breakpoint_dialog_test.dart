@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:rox_proxy/models/breakpoint_notification.dart';
 import 'package:rox_proxy/models/breakpoint_request.dart';
 import 'package:rox_proxy/models/breakpoint_response.dart';
 import 'package:rox_proxy/models/captured_exchange.dart';
@@ -11,11 +12,11 @@ import 'package:rox_proxy/services/breakpoint_service.dart';
 import 'package:rox_proxy/ui/breakpoint/breakpoint_dialog.dart';
 
 class FakeBreakpointService extends BreakpointService {
-  final controller = StreamController<BreakpointRequest>();
+  final controller = StreamController<BreakpointNotification>();
   final decisions = <BreakpointResponse>[];
 
   @override
-  Stream<BreakpointRequest> get breakpointStream => controller.stream;
+  Stream<BreakpointNotification> get breakpointStream => controller.stream;
 
   @override
   Future<void> sendDecision(BreakpointResponse response) async {
@@ -67,7 +68,7 @@ void main() {
     container.read(breakpointProvider.notifier);
     // Attiva il provider PRIMA di aprire il dialog, come in produzione
     // (main_window osserva il provider fin dall'avvio).
-    fake.controller.add(sampleRequest());
+    fake.controller.add(RequestBreakpointNotification(sampleRequest()));
     await tester.pump();
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();

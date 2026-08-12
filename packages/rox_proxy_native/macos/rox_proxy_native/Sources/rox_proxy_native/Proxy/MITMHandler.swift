@@ -260,7 +260,9 @@ final class MITMHandler: ChannelInboundHandler {
         context: ChannelHandlerContext,
         head: HTTPRequestHead,
         bodyParts: [ByteBuffer],
-        exchange: CapturedExchange
+        exchange: CapturedExchange,
+        upstreamHost: String? = nil,
+        upstreamPort: Int? = nil
     ) {
         var exchange = exchange
         // Normalise URI to relative path (some clients send absolute URIs)
@@ -275,9 +277,10 @@ final class MITMHandler: ChannelInboundHandler {
         outHead.headers.remove(name: "Proxy-Connection")
         outHead.headers.remove(name: "Proxy-Authorization")
         outHead.headers.replaceOrAdd(name: "Connection", value: "close")
-        outHead.headers.replaceOrAdd(name: "Host", value: host)
+        outHead.headers.replaceOrAdd(name: "Host", value: upstreamHost ?? host)
 
         let store = self.store
+        let breakpointHandler = self.breakpointHandler
         let onComplete = { [weak self] in
             guard let self else { return }
             _ = context.channel.setOption(ChannelOptions.autoRead, value: true)
@@ -293,7 +296,7 @@ final class MITMHandler: ChannelInboundHandler {
             sslContext = try NIOSSLContext(configuration: tlsConfig)
         } catch {
             ProxyLogger.tls.error("TLS setup failed: %{public}@", error.localizedDescription)
-            exchange.state   = .failed("TLS setup: \(friendlyConnectionError(error, host: host))")
+            exchange.state   = .failed("TLS setup: \(friendlyConnectionError(error, host: upstreamHost ?? host))")
             exchange.endTime = Date()
             Task { @MainActor in store.update(exchange) }
             sendError(context: context, status: .internalServerError)
@@ -301,8 +304,8 @@ final class MITMHandler: ChannelInboundHandler {
             return
         }
 
-        let upstreamHost = host
-        let upstreamPort = port
+        let upstreamHost = upstreamHost ?? host
+        let upstreamPort = upstreamPort ?? port
         ClientBootstrap(group: context.eventLoop)
             .channelInitializer { channel in
                 do {
@@ -315,7 +318,8 @@ final class MITMHandler: ChannelInboundHandler {
                                     inboundContext: context,
                                     store: store,
                                     exchange: exchange,
-                                    onComplete: onComplete
+                                    onComplete: onComplete,
+                                    breakpointHandler: breakpointHandler
                                 )
                             )
                         }
@@ -353,9 +357,9 @@ final class MITMHandler: ChannelInboundHandler {
     }
 
     /// Executed on the request's event loop once the user decides (or the
-    /// timeout fires). Proceed → apply modifications and forward; Cancel →
-    /// respond 400 and mark the exchange cancelled. The MITM host is pinned
-    /// (RF4.3): host changes in the modified URL are ignored.
+    /// timeout fires). Proceed → apply modifications (including host/port
+    /// changes) and forward; Cancel → respond 400 and mark the exchange
+    /// cancelled.
     private func handleBreakpointDecision(
         decision: BreakpointResponse,
         context: ChannelHandlerContext,
@@ -387,10 +391,16 @@ final class MITMHandler: ChannelInboundHandler {
                 originalPort: port,
                 originalRelativePath: head.uri,
                 exchange: exchange,
-                allocator: context.channel.allocator,
-                fixedHost: host
+                allocator: context.channel.allocator
             )
-            forwardToUpstream(context: context, head: modified.head, bodyParts: modified.bodyParts, exchange: modified.exchange)
+            forwardToUpstream(
+                context: context,
+                head: modified.head,
+                bodyParts: modified.bodyParts,
+                exchange: modified.exchange,
+                upstreamHost: modified.host,
+                upstreamPort: modified.port
+            )
         }
     }
 

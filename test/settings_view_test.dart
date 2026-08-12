@@ -24,6 +24,7 @@ void main() {
       'HTTPS Domains',
       'Certificate',
       'Map Local',
+      'Breakpoints',
     ]) {
       expect(find.text(label), findsOneWidget);
     }

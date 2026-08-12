@@ -97,12 +97,18 @@ final class ProxyMethodHandler: NSObject {
 
         // Breakpoint engine — created only when the feature is enabled (RF1.1).
         if breakpointEnabled {
+            // Empty rules keep the v1 behaviour: every request breaks.
+            let rules = (args["breakpointRules"] as? [[String: Any]] ?? []).compactMap {
+                BreakpointRule.fromDictionary($0)
+            }
             let handler = BreakpointHandler(
-                matcher: BreakpointMatcher(isEnabled: true),
+                matcher: BreakpointMatcher(rules: rules),
                 notifier: breakpointStreamHandler
             )
             self.breakpointHandler = handler
-            ProxyLogger.breakpoint.info("Breakpoint enabled via Flutter method call")
+            ProxyLogger.breakpoint.info(
+                "Breakpoint enabled via Flutter method call (%d rule(s))", rules.count
+            )
         } else {
             self.breakpointHandler = nil
         }

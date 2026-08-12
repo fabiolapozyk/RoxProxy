@@ -73,7 +73,7 @@ final class ProxyServer {
         if !mapLocal.isEmpty {
             ProxyLogger.map.info("Map Local: %d enabled rule(s) loaded", self.mapLocalRules.filter(\.isEnabled).count)
         }
-        if let breakpoints, breakpoints.matcher.isEnabled {
+        if breakpoints != nil {
             ProxyLogger.breakpoint.info(
                 "Breakpoint: enabled (timeout %llds)",
                 BreakpointHandler.defaultTimeout.nanoseconds / 1_000_000_000

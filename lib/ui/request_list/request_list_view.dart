@@ -3,13 +3,16 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/captured_exchange.dart';
+import '../../models/breakpoint_rule.dart';
 import '../../models/map_local_rule.dart';
 import '../../models/replay_request.dart';
+import '../../providers/breakpoint_rules_provider.dart';
 import '../../providers/exchange_provider.dart';
 import '../../providers/map_local_provider.dart';
 import '../../providers/proxy_channel_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../utils/data_formatting.dart';
+import '../breakpoint/breakpoint_rule_edit.dart';
 import '../components/https_indicator.dart';
 import '../components/method_badge.dart';
 import '../components/status_indicator.dart';
@@ -267,6 +270,46 @@ class _ExchangeRow extends ConsumerWidget {
 
   bool get _canMapLocal => _canReplay;
 
+  /// A breakpoint rule can target any exchange except blind-tunnel CONNECT
+  /// (the tunneled traffic never passes through the HTTP handlers).
+  bool get _canBreakpoint =>
+      !(exchange.isHTTPS &&
+          !exchange.isMITMDecrypted &&
+          exchange.method == 'CONNECT');
+
+  /// Opens the breakpoint rule editor pre-filled with this exchange's
+  /// host/path/method, so the user can suspend matching calls.
+  Future<void> _showBreakpointDialog(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    final cleanPath = Uri.tryParse(exchange.path)?.path ?? exchange.path;
+    final initial = BreakpointRule(
+      name: 'Breakpoint ${exchange.method} ${exchange.host}',
+      hostPattern: exchange.host,
+      pathPattern: cleanPath.isEmpty ? '**' : cleanPath,
+      httpMethod: exchange.method == 'CONNECT' ? 'ANY' : exchange.method,
+    );
+    final created = await showDialog<BreakpointRule>(
+      context: context,
+      builder: (_) => BreakpointRuleEditDialog(initial: initial),
+    );
+    if (created == null) return;
+    ref.read(breakpointRulesProvider.notifier).addRule(created);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Breakpoint rule added — proxy will restart to apply it',
+          ),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+          margin: EdgeInsets.only(bottom: 80.0, left: 10.0, right: 10.0),
+        ),
+      );
+    }
+  }
+
   /// Opens the Map Local rule editor pre-filled with this exchange's
   /// host/path/method, so the user can mock it with a local file.
   Future<void> _showMapLocalDialog(BuildContext context, WidgetRef ref) async {
@@ -392,6 +435,14 @@ class _ExchangeRow extends ConsumerWidget {
               style: TextStyle(fontSize: 13),
             ),
           ),
+        if (_canBreakpoint)
+          const PopupMenuItem<String>(
+            value: 'breakpoint',
+            child: Text(
+              'Breakpoint this request…',
+              style: TextStyle(fontSize: 13),
+            ),
+          ),
       ],
     );
 
@@ -412,6 +463,8 @@ class _ExchangeRow extends ConsumerWidget {
       await _showReplayDialog(context, ref);
     } else if (result == 'map_local') {
       await _showMapLocalDialog(context, ref);
+    } else if (result == 'breakpoint') {
+      await _showBreakpointDialog(context, ref);
     }
   }
 

@@ -15,9 +15,10 @@ final class BreakpointHandler: @unchecked Sendable {
     /// plugin; stubbed in CoreTests.
     protocol Notifier: AnyObject {
         /// True when the UI is listening. When false the core must not
-        /// suspend: requests are forwarded immediately (RF3.3).
+        /// suspend: traffic is forwarded immediately (RF3.3).
         var isAvailable: Bool { get }
-        func breakpointSuspended(_ request: BreakpointRequest)
+        func requestSuspended(_ request: BreakpointRequest)
+        func responseSuspended(_ response: ResponseBreakpoint)
     }
 
     /// Timeout before auto-proceed with the original request (RF5.1).
@@ -74,8 +75,37 @@ final class BreakpointHandler: @unchecked Sendable {
             ProxyLogger.breakpoint.default("Breakpoint: UI unavailable, forwarding request %{public}@", request.method)
             return false
         }
-        notifier.breakpointSuspended(request)
+        notifier.requestSuspended(request)
         let breakpointId = request.id
+        let timeoutTask = eventLoop.scheduleTask(in: Self.defaultTimeout) { [weak self] in
+            ProxyLogger.breakpoint.info("Breakpoint %{public}@: timeout, auto-proceeding", breakpointId)
+            self?.resolve(breakpointId: breakpointId, response: .autoProceed(breakpointId: breakpointId))
+        }
+        pending[breakpointId] = Pending(
+            breakpointId: breakpointId,
+            eventLoop: eventLoop,
+            onDecision: onDecision,
+            timeoutTask: timeoutTask
+        )
+        lock.unlock()
+        return true
+    }
+
+    /// Registers a suspended response and notifies the UI. Same semantics as
+    /// `suspend(request:...)`; returns false when the UI cannot be reached.
+    func suspend(
+        response: ResponseBreakpoint,
+        eventLoop: EventLoop,
+        onDecision: @escaping (BreakpointResponse) -> Void
+    ) -> Bool {
+        lock.lock()
+        guard let notifier, notifier.isAvailable else {
+            lock.unlock()
+            ProxyLogger.breakpoint.default("Breakpoint: UI unavailable, forwarding response")
+            return false
+        }
+        notifier.responseSuspended(response)
+        let breakpointId = response.id
         let timeoutTask = eventLoop.scheduleTask(in: Self.defaultTimeout) { [weak self] in
             ProxyLogger.breakpoint.info("Breakpoint %{public}@: timeout, auto-proceeding", breakpointId)
             self?.resolve(breakpointId: breakpointId, response: .autoProceed(breakpointId: breakpointId))

@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../models/breakpoint_request.dart';
+import '../models/breakpoint_notification.dart';
 import '../models/breakpoint_response.dart';
 import '../models/captured_exchange.dart';
 import '../services/breakpoint_service.dart';
@@ -11,10 +11,10 @@ final breakpointServiceProvider = Provider<BreakpointService>((ref) {
   return BreakpointService();
 });
 
-/// Stato del provider: richiesta attiva (dialog), coda, tempo residuo.
+/// Stato del provider: notifica attiva (dialog), coda, tempo residuo.
 class BreakpointState {
-  final BreakpointRequest? active;
-  final List<BreakpointRequest> queue;
+  final BreakpointNotification? active;
+  final List<BreakpointNotification> queue;
   final int remainingSeconds;
 
   const BreakpointState({
@@ -31,33 +31,33 @@ final breakpointProvider =
       return BreakpointNotifier(ref.read(breakpointServiceProvider));
     });
 
-/// Gestisce lo stream delle notifiche, la coda dei dialog (RF7.1) e il
-/// countdown del timeout (RF7.2). Il core applica comunque il timeout lato
-/// Swift: il countdown qui è solo indicativo.
+/// Gestisce lo stream delle notifiche (richieste e risposte), la coda dei
+/// dialog (RF7.1) e il countdown del timeout (RF7.2). Il core applica comunque
+/// il timeout lato Swift: il countdown qui è solo indicativo.
 class BreakpointNotifier extends StateNotifier<BreakpointState> {
   static const timeoutSeconds = 30;
 
   final BreakpointService _service;
   StreamSubscription? _subscription;
   Timer? _timer;
-  final List<BreakpointRequest> _queue = [];
+  final List<BreakpointNotification> _queue = [];
 
   BreakpointNotifier(this._service) : super(const BreakpointState()) {
-    _subscription = _service.breakpointStream.listen(_onRequest);
+    _subscription = _service.breakpointStream.listen(_onNotification);
   }
 
-  void _onRequest(BreakpointRequest request) {
+  void _onNotification(BreakpointNotification notification) {
     if (state.active == null) {
-      _activate(request);
+      _activate(notification);
     } else {
-      _queue.add(request);
+      _queue.add(notification);
       state = state.copyWith(queue: List.of(_queue));
     }
   }
 
-  void _activate(BreakpointRequest request) {
+  void _activate(BreakpointNotification notification) {
     state = BreakpointState(
-      active: request,
+      active: notification,
       queue: List.of(_queue),
       remainingSeconds: timeoutSeconds,
     );
@@ -84,7 +84,7 @@ class BreakpointNotifier extends StateNotifier<BreakpointState> {
     }
   }
 
-  /// Proceed con le modifiche scelte dall'utente (RF4).
+  /// Proceed per una richiesta sospesa con le modifiche scelte (RF4).
   Future<void> proceed({
     required String method,
     required String url,
@@ -92,7 +92,7 @@ class BreakpointNotifier extends StateNotifier<BreakpointState> {
     String? body,
   }) async {
     final active = state.active;
-    if (active == null) return;
+    if (active is! RequestBreakpointNotification) return;
     final response = BreakpointResponse(
       breakpointId: active.id,
       action: BreakpointAction.proceed,
@@ -106,7 +106,22 @@ class BreakpointNotifier extends StateNotifier<BreakpointState> {
     _advance();
   }
 
-  /// Cancel: il core risponde 400 al client (RF3.2).
+  /// Proceed per una risposta sospesa: inoltro così com'è.
+  Future<void> proceedResponse() async {
+    final active = state.active;
+    if (active is! ResponseBreakpointNotification) return;
+    await _service.sendDecision(
+      BreakpointResponse(
+        breakpointId: active.id,
+        action: BreakpointAction.proceed,
+        timestamp: DateTime.now(),
+      ),
+    );
+    _advance();
+  }
+
+  /// Cancel: il core risponde 400 al client (richieste) o chiude la
+  /// connessione (risposte).
   Future<void> cancel() async {
     final active = state.active;
     if (active == null) return;
@@ -130,8 +145,8 @@ class BreakpointNotifier extends StateNotifier<BreakpointState> {
 
 extension on BreakpointState {
   BreakpointState copyWith({
-    BreakpointRequest? active,
-    List<BreakpointRequest>? queue,
+    BreakpointNotification? active,
+    List<BreakpointNotification>? queue,
     int? remainingSeconds,
   }) => BreakpointState(
     active: active ?? this.active,

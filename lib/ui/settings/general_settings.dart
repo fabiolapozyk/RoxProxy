@@ -132,13 +132,6 @@ class _GeneralSettingsState extends ConsumerState<GeneralSettings> {
           ),
         ),
         _FormRow(
-          label: 'Breakpoints',
-          child: Switch(
-            value: settings.breakpointEnabled,
-            onChanged: notifier.setBreakpointEnabled,
-          ),
-        ),
-        _FormRow(
           label: 'Connection timeout (seconds)',
           child: SizedBox(
             width: 100,

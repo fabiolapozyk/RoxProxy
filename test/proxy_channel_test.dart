@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:rox_proxy/models/breakpoint_rule.dart';
 import 'package:rox_proxy/models/domain_rule.dart';
 import 'package:rox_proxy/models/map_local_rule.dart';
 import 'package:rox_proxy/services/proxy_channel.dart';
@@ -128,6 +129,43 @@ void main() {
         breakpointEnabled: true,
       );
       expect(capturedArgs!['breakpointEnabled'], isTrue);
+    });
+
+    test('startProxy forwards breakpoint rules', () async {
+      Map<String, dynamic>? capturedArgs;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(controlChannel, (call) async {
+            capturedArgs = Map<String, dynamic>.from(call.arguments as Map);
+            return {'port': 8080};
+          });
+
+      await proxyChannel.startProxy(
+        port: 8080,
+        domainRules: const [],
+        connectionTimeoutSeconds: 30,
+        setSystemProxy: true,
+        httpsInterceptionEnabled: true,
+        breakpointEnabled: true,
+        breakpointRules: [
+          BreakpointRule(
+            hostPattern: 'api.example.com',
+            pathPattern: '/api/**',
+            httpMethod: 'POST',
+            target: BreakpointTarget.both,
+            isEnabled: false,
+          ),
+        ],
+      );
+
+      final rules = capturedArgs!['breakpointRules'] as List;
+      expect(rules.length, 1);
+      final rule = Map<String, dynamic>.from(rules.single as Map);
+      expect(rule['hostPattern'], 'api.example.com');
+      expect(rule['pathPattern'], '/api/**');
+      expect(rule['httpMethod'], 'POST');
+      expect(rule['target'], 'both');
+      expect(rule['isEnabled'], isFalse);
+      expect(rule['id'], isNotEmpty);
     });
 
     test('startProxy should fall back to the requested port', () async {

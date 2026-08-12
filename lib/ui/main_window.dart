@@ -2,15 +2,19 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/breakpoint_notification.dart';
+import '../models/breakpoint_rule.dart';
 import '../models/map_local_rule.dart';
 import '../models/proxy_settings.dart';
 import '../models/proxy_state.dart';
 import '../providers/breakpoint_provider.dart';
+import '../providers/breakpoint_rules_provider.dart';
 import '../providers/exchange_provider.dart';
 import '../providers/map_local_provider.dart';
 import '../providers/proxy_control_provider.dart';
 import '../providers/settings_provider.dart';
 import 'breakpoint/breakpoint_dialog.dart';
+import 'breakpoint/response_breakpoint_dialog.dart';
 import 'components/ca_warning_banner.dart';
 import 'components/status_bar.dart';
 import 'detail/detail_view.dart';
@@ -28,6 +32,7 @@ class _MainWindowState extends ConsumerState<MainWindow> {
   bool _autoStartDone = false;
   List<String>? _lastDomainRuleIds;
   List<String>? _lastMapLocalRuleKeys;
+  List<String>? _lastBreakpointRuleKeys;
   bool? _lastBreakpointEnabled;
   double _listWidth = 520;
 
@@ -104,6 +109,29 @@ class _MainWindowState extends ConsumerState<MainWindow> {
     _lastBreakpointEnabled = settings.breakpointEnabled;
   }
 
+  /// Restarts the proxy whenever breakpoint rules change while it's running,
+  /// so the new rules take effect immediately.
+  void _maybeRestartForBreakpointRuleChange(List<BreakpointRule> rules) {
+    if (!ref.read(breakpointRulesLoadedProvider)) return;
+
+    final currentKeys = rules.map(_breakpointRuleKey).toList()..sort();
+
+    final proxyState = ref.read(proxyStateProvider);
+    if (proxyState.isRunning &&
+        _lastBreakpointRuleKeys != null &&
+        !listEquals(_lastBreakpointRuleKeys, currentKeys)) {
+      final notifier = ref.read(proxyStateProvider.notifier);
+      final settings = ref.read(settingsProvider);
+      notifier.stop().then((_) => notifier.start(settings));
+    }
+
+    _lastBreakpointRuleKeys = currentKeys;
+  }
+
+  static String _breakpointRuleKey(BreakpointRule r) =>
+      '${r.id}:${r.isEnabled}:${r.hostPattern}:${r.pathPattern}:'
+      '${r.httpMethod}:${r.target.name}';
+
   static String _ruleKey(MapLocalRule r) =>
       '${r.id}:${r.isEnabled}:${r.hostPattern}:${r.pathPattern}:'
       '${r.httpMethod}:${r.filePath}:${r.statusCode}:${r.contentType}:'
@@ -130,18 +158,24 @@ class _MainWindowState extends ConsumerState<MainWindow> {
     // Il defer doppio evita che il dialog del prossimo elemento della coda
     // venga aperto prima che quello corrente si chiuda (RF7.1).
     ref.listen(breakpointProvider, (prev, next) {
-      final request = next.active;
-      if (request == null || request.id == prev?.active?.id) return;
+      final notification = next.active;
+      if (notification == null || notification.id == prev?.active?.id) return;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
           final current = ref.read(breakpointProvider).active;
-          if (current == null || current.id != request.id) return;
+          if (current == null || current.id != notification.id) return;
           showDialog<void>(
             context: context,
             barrierDismissible: false,
-            builder: (_) => BreakpointDialog(request: current),
+            builder: (_) => switch (current) {
+              RequestBreakpointNotification(:final request) => BreakpointDialog(
+                request: request,
+              ),
+              ResponseBreakpointNotification(:final response) =>
+                ResponseBreakpointDialog(response: response),
+            },
           );
         });
       });
@@ -153,10 +187,11 @@ class _MainWindowState extends ConsumerState<MainWindow> {
     final selectedExchange = ref.watch(selectedExchangeProvider);
     final settings = ref.watch(settingsProvider);
     final mapLocalRules = ref.watch(mapLocalProvider);
+    final breakpointRules = ref.watch(breakpointRulesProvider);
     final httpsEnabled = settings.httpsInterceptionEnabled;
 
     // Restart proxy if domain rules, Map Local rules, HTTPS interception
-    // flag or breakpoints changed while running
+    // flag, breakpoints toggle or breakpoint rules changed while running
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => _maybeRestartForRuleChange(settings),
     );
@@ -165,6 +200,9 @@ class _MainWindowState extends ConsumerState<MainWindow> {
     );
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => _maybeRestartForBreakpointChange(settings),
+    );
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _maybeRestartForBreakpointRuleChange(breakpointRules),
     );
 
     return Scaffold(
