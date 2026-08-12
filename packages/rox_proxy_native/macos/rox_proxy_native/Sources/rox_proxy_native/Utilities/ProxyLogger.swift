@@ -128,4 +128,7 @@ final class ProxyLogger {
 
     /// Map Local rule matching and file serving
     static let map = CategoryLogger(log: OSLog(subsystem: subsystem, category: "mapLocal"))
+
+    /// Breakpoint suspension, decisions and timeouts (no payloads)
+    static let breakpoint = CategoryLogger(log: OSLog(subsystem: subsystem, category: "breakpoint"))
 }

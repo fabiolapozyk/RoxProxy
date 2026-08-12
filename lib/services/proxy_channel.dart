@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 
+import '../models/breakpoint_rule.dart';
 import '../models/captured_exchange.dart';
 import '../models/domain_rule.dart';
 import '../models/map_local_rule.dart';
@@ -43,6 +44,8 @@ class ProxyChannel {
     required bool setSystemProxy,
     required bool httpsInterceptionEnabled,
     List<MapLocalRule> mapLocalRules = const [],
+    bool breakpointEnabled = false,
+    List<BreakpointRule> breakpointRules = const [],
   }) async {
     final result = await _method.invokeMethod<Map>('startProxy', {
       'port': port,
@@ -51,6 +54,8 @@ class ProxyChannel {
       'connectionTimeoutSeconds': connectionTimeoutSeconds,
       'setSystemProxy': setSystemProxy,
       'httpsInterceptionEnabled': httpsInterceptionEnabled,
+      'breakpointEnabled': breakpointEnabled,
+      'breakpointRules': breakpointRules.map((r) => r.toMap()).toList(),
     });
     return (result?['port'] as int?) ?? port;
   }

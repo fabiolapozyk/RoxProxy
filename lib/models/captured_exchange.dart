@@ -12,13 +12,13 @@ class CapturedExchange {
   final String id;
   final DateTime startTime;
   DateTime? endTime;
-  final String method;
-  final String url;
+  String method;
+  String url;
   final String scheme;
   final String host;
   final int port;
-  final String path;
-  final List<HttpHeader> requestHeaders;
+  String path;
+  List<HttpHeader> requestHeaders;
   String? requestBodyRef;
   final int requestSize;
   int? statusCode;
@@ -28,7 +28,9 @@ class CapturedExchange {
   int? responseSize;
   final bool isHTTPS;
   final bool isMITMDecrypted;
-  final bool isMapLocal;
+  bool isMapLocal;
+  bool isBreakpoint;
+  bool isResponseBreakpoint;
   ExchangeState state;
   String? errorMessage;
 
@@ -64,6 +66,8 @@ class CapturedExchange {
     required this.isHTTPS,
     required this.isMITMDecrypted,
     this.isMapLocal = false,
+    this.isBreakpoint = false,
+    this.isResponseBreakpoint = false,
     this.state = ExchangeState.inProgress,
     this.errorMessage,
   });
@@ -97,6 +101,8 @@ class CapturedExchange {
       isHTTPS: map['isHTTPS'] as bool,
       isMITMDecrypted: map['isMITMDecrypted'] as bool,
       isMapLocal: map['isMapLocal'] as bool? ?? false,
+      isBreakpoint: map['isBreakpoint'] as bool? ?? false,
+      isResponseBreakpoint: map['isResponseBreakpoint'] as bool? ?? false,
       state: _parseState(map['state'] as String),
       errorMessage: map['errorMessage'] as String?,
     );
@@ -104,6 +110,16 @@ class CapturedExchange {
 
   /// Merges updated fields from a channel "update" event into this exchange.
   void applyUpdate(CapturedExchange updated) {
+    // La richiesta può essere stata modificata al breakpoint (RF4): metodo,
+    // URL, path e header vengono recepiti così come inviati dal core.
+    method = updated.method;
+    url = updated.url;
+    path = updated.path;
+    requestHeaders = updated.requestHeaders;
+    // I flag breakpoint arrivano con l'update (il response breakpoint scatta
+    // dopo l'append della richiesta).
+    isBreakpoint = updated.isBreakpoint;
+    isResponseBreakpoint = updated.isResponseBreakpoint;
     endTime = updated.endTime;
     statusCode = updated.statusCode;
     statusMessage = updated.statusMessage;

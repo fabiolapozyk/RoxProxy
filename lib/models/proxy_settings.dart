@@ -9,6 +9,7 @@ class ProxySettings {
   int connectionTimeoutSeconds;
   bool setSystemProxy;
   bool httpsInterceptionEnabled;
+  bool breakpointEnabled;
 
   ProxySettings({
     this.port = 8080,
@@ -19,6 +20,7 @@ class ProxySettings {
     this.connectionTimeoutSeconds = 30,
     this.setSystemProxy = false,
     this.httpsInterceptionEnabled = true,
+    this.breakpointEnabled = false,
   }) : domainRules = domainRules ?? [];
 
   Map<String, dynamic> toJson() => {
@@ -30,6 +32,7 @@ class ProxySettings {
     'connectionTimeoutSeconds': connectionTimeoutSeconds,
     'setSystemProxy': setSystemProxy,
     'httpsInterceptionEnabled': httpsInterceptionEnabled,
+    'breakpointEnabled': breakpointEnabled,
   };
 
   factory ProxySettings.fromJson(Map<String, dynamic> json) => ProxySettings(
@@ -47,6 +50,7 @@ class ProxySettings {
     connectionTimeoutSeconds: json['connectionTimeoutSeconds'] as int? ?? 30,
     setSystemProxy: json['setSystemProxy'] as bool? ?? false,
     httpsInterceptionEnabled: json['httpsInterceptionEnabled'] as bool? ?? true,
+    breakpointEnabled: json['breakpointEnabled'] as bool? ?? false,
   );
 
   ProxySettings copyWith({
@@ -58,6 +62,7 @@ class ProxySettings {
     int? connectionTimeoutSeconds,
     bool? setSystemProxy,
     bool? httpsInterceptionEnabled,
+    bool? breakpointEnabled,
   }) => ProxySettings(
     port: port ?? this.port,
     domainRules: domainRules ?? this.domainRules,
@@ -69,5 +74,6 @@ class ProxySettings {
     setSystemProxy: setSystemProxy ?? this.setSystemProxy,
     httpsInterceptionEnabled:
         httpsInterceptionEnabled ?? this.httpsInterceptionEnabled,
+    breakpointEnabled: breakpointEnabled ?? this.breakpointEnabled,
   );
 }

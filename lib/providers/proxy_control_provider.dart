@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/proxy_state.dart';
 import '../models/proxy_settings.dart';
+import 'breakpoint_rules_provider.dart';
 import 'map_local_provider.dart';
 import 'proxy_channel_provider.dart';
 
@@ -23,7 +24,9 @@ class ProxyStateNotifier extends StateNotifier<ProxyState> {
       // Wait for Map Local rules to finish loading from disk, otherwise an
       // empty list is sent to the native proxy on a fast startup/auto-start.
       await _ref.read(mapLocalProvider.notifier).ensureLoaded();
+      await _ref.read(breakpointRulesProvider.notifier).ensureLoaded();
       final mapLocalRules = _ref.read(mapLocalProvider);
+      final breakpointRules = _ref.read(breakpointRulesProvider);
       final port = await channel.startProxy(
         port: settings.port,
         domainRules: settings.domainRules,
@@ -31,6 +34,8 @@ class ProxyStateNotifier extends StateNotifier<ProxyState> {
         connectionTimeoutSeconds: settings.connectionTimeoutSeconds,
         setSystemProxy: settings.setSystemProxy,
         httpsInterceptionEnabled: settings.httpsInterceptionEnabled,
+        breakpointEnabled: settings.breakpointEnabled,
+        breakpointRules: breakpointRules,
       );
       state = ProxyRunning(port);
     } catch (e) {

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../breakpoint/breakpoint_rules_panel.dart';
 import '../map_local/map_local_panel.dart';
 import 'certificate_setup_view.dart';
 import 'domain_list_view.dart';
@@ -22,6 +23,7 @@ class _SettingsViewState extends State<SettingsView> {
     (icon: Icons.lock_outlined, label: 'HTTPS Domains'),
     (icon: Icons.verified_user_outlined, label: 'Certificate'),
     (icon: Icons.source_outlined, label: 'Map Local'),
+    (icon: Icons.pause_circle_outline, label: 'Breakpoints'),
   ];
 
   @override
@@ -69,7 +71,8 @@ class _SettingsViewState extends State<SettingsView> {
                   0 => const GeneralSettings(),
                   1 => const DomainListView(),
                   2 => const CertificateSetupView(),
-                  _ => const MapLocalRuleManager(),
+                  3 => const MapLocalRuleManager(),
+                  _ => const BreakpointRulesManager(),
                 },
               ),
             ],
