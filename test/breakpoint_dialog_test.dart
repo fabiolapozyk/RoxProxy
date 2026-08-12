@@ -80,11 +80,39 @@ void main() {
 
     expect(find.byType(BreakpointDialog), findsOneWidget);
     expect(find.text('Breakpoint — POST example.com'), findsOneWidget);
+    expect(find.byIcon(Icons.output), findsOneWidget);
     expect(find.text('Auto-proceed in 30s'), findsOneWidget);
     expect(find.text('Proceed'), findsOneWidget);
     expect(find.text('Cancel (400)'), findsOneWidget);
     expect(find.text('{"a":1}'), findsOneWidget);
     expect(find.widgetWithText(TextField, 'Content-Type'), findsOneWidget);
+  });
+
+  testWidgets('shows a specific hint when the request has no body', (
+    tester,
+  ) async {
+    final fake = FakeBreakpointService();
+    final noBody = BreakpointRequest(
+      id: 'bp-2',
+      exchangeId: 'ex-2',
+      method: 'GET',
+      url: 'https://example.com/',
+      headers: const [],
+      body: null,
+      timestamp: DateTime.now(),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [breakpointServiceProvider.overrideWithValue(fake)],
+        child: MaterialApp(
+          home: Scaffold(body: BreakpointDialog(request: noBody)),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('(Body non presente nella request)'), findsOneWidget);
+    expect(find.text('Body testuale (solo testo in v1)'), findsNothing);
   });
 
   testWidgets('closes on timeout when the request auto-proceeds', (

@@ -84,23 +84,70 @@ void main() {
     await pumpDialog(tester, fake);
 
     expect(find.text('Response breakpoint — GET example.com'), findsOneWidget);
-    expect(find.text('404 Not Found'), findsOneWidget);
+    expect(find.byIcon(Icons.input), findsOneWidget);
     expect(find.text('Auto-proceed in 30s'), findsOneWidget);
-    expect(find.text('Content-Type: application/json'), findsOneWidget);
+    expect(find.text('404 Not Found'), findsNothing);
+    expect(find.widgetWithText(TextField, 'Status'), findsOneWidget);
+    expect(find.widgetWithText(TextField, 'Content-Type'), findsOneWidget);
     expect(find.text('{"error":true}'), findsOneWidget);
     expect(find.text('Proceed'), findsOneWidget);
     expect(find.text('Cancel'), findsOneWidget);
   });
 
-  testWidgets('proceed forwards the response as-is', (tester) async {
+  testWidgets('proceed sends the modified response', (tester) async {
     final fake = FakeBreakpointService();
     await pumpDialog(tester, fake);
 
+    await tester.enterText(find.widgetWithText(TextField, 'Status'), '503');
+    await tester.enterText(
+      find.widgetWithText(TextField, '{"error":true}'),
+      '{"error":"unavailable"}',
+    );
     await tester.tap(find.text('Proceed'));
     await tester.pumpAndSettle();
 
-    expect(fake.decisions.single.breakpointId, 'rb-1');
-    expect(fake.decisions.single.action.name, 'proceed');
+    final decision = fake.decisions.single;
+    expect(decision.breakpointId, 'rb-1');
+    expect(decision.action.name, 'proceed');
+    expect(decision.modifiedStatus, 503);
+    expect(decision.modifiedBody, '{"error":"unavailable"}');
+    expect(decision.modifiedHeaders, isNotNull);
+  });
+
+  testWidgets('shows a specific hint when the response has no body', (
+    tester,
+  ) async {
+    final fake = FakeBreakpointService();
+    final noBody = ResponseBreakpointNotification(
+      ResponseBreakpoint(
+        id: 'rb-2',
+        exchangeId: 'ex-2',
+        method: 'GET',
+        url: 'https://example.com/',
+        statusCode: 200,
+        statusMessage: 'OK',
+        headers: const [],
+        body: null,
+        timestamp: DateTime.now(),
+      ),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [breakpointServiceProvider.overrideWithValue(fake)],
+        child: MaterialApp(
+          home: Scaffold(
+            body: ResponseBreakpointDialog(response: noBody.response),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.text('(Body non presente o non testuale nella response)'),
+      findsOneWidget,
+    );
+    expect(find.text('Body testuale (solo testo in v1)'), findsNothing);
   });
 
   testWidgets('cancel aborts the response', (tester) async {

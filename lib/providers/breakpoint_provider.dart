@@ -106,14 +106,22 @@ class BreakpointNotifier extends StateNotifier<BreakpointState> {
     _advance();
   }
 
-  /// Proceed per una risposta sospesa: inoltro così com'è.
-  Future<void> proceedResponse() async {
+  /// Proceed per una risposta sospesa, con eventuali modifiche
+  /// (status/header/body).
+  Future<void> proceedResponse({
+    int? status,
+    List<HttpHeader>? headers,
+    String? body,
+  }) async {
     final active = state.active;
     if (active is! ResponseBreakpointNotification) return;
     await _service.sendDecision(
       BreakpointResponse(
         breakpointId: active.id,
         action: BreakpointAction.proceed,
+        modifiedHeaders: headers,
+        modifiedBody: body,
+        modifiedStatus: status,
         timestamp: DateTime.now(),
       ),
     );

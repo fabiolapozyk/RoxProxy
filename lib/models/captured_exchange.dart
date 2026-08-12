@@ -28,8 +28,9 @@ class CapturedExchange {
   int? responseSize;
   final bool isHTTPS;
   final bool isMITMDecrypted;
-  final bool isMapLocal;
-  final bool isBreakpoint;
+  bool isMapLocal;
+  bool isBreakpoint;
+  bool isResponseBreakpoint;
   ExchangeState state;
   String? errorMessage;
 
@@ -66,6 +67,7 @@ class CapturedExchange {
     required this.isMITMDecrypted,
     this.isMapLocal = false,
     this.isBreakpoint = false,
+    this.isResponseBreakpoint = false,
     this.state = ExchangeState.inProgress,
     this.errorMessage,
   });
@@ -100,6 +102,7 @@ class CapturedExchange {
       isMITMDecrypted: map['isMITMDecrypted'] as bool,
       isMapLocal: map['isMapLocal'] as bool? ?? false,
       isBreakpoint: map['isBreakpoint'] as bool? ?? false,
+      isResponseBreakpoint: map['isResponseBreakpoint'] as bool? ?? false,
       state: _parseState(map['state'] as String),
       errorMessage: map['errorMessage'] as String?,
     );
@@ -113,6 +116,10 @@ class CapturedExchange {
     url = updated.url;
     path = updated.path;
     requestHeaders = updated.requestHeaders;
+    // I flag breakpoint arrivano con l'update (il response breakpoint scatta
+    // dopo l'append della richiesta).
+    isBreakpoint = updated.isBreakpoint;
+    isResponseBreakpoint = updated.isResponseBreakpoint;
     endTime = updated.endTime;
     statusCode = updated.statusCode;
     statusMessage = updated.statusMessage;

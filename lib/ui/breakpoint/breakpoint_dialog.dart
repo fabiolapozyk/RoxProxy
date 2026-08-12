@@ -124,9 +124,18 @@ class _BreakpointDialogState extends ConsumerState<BreakpointDialog> {
     }
 
     return AlertDialog(
-      title: Text(
-        'Breakpoint — ${widget.request.method} ${widget.request.host}',
-        style: const TextStyle(fontSize: 16),
+      title: Row(
+        children: [
+          const Icon(Icons.output, size: 18, color: Color(0xFF34C759)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Breakpoint — ${widget.request.method} ${widget.request.host}',
+              style: const TextStyle(fontSize: 16),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
       ),
       content: SizedBox(
         width: 640,
@@ -250,10 +259,12 @@ class _BreakpointDialogState extends ConsumerState<BreakpointDialog> {
                   child: TextField(
                     controller: _bodyController,
                     maxLines: null,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       border: InputBorder.none,
-                      contentPadding: EdgeInsets.all(12),
-                      hintText: 'Body testuale (solo testo in v1)',
+                      contentPadding: const EdgeInsets.all(12),
+                      hintText: widget.request.body == null
+                          ? '(Body non presente nella request)'
+                          : 'Body testuale (solo testo in v1)',
                     ),
                     textAlign: TextAlign.left,
                     textDirection: TextDirection.ltr,

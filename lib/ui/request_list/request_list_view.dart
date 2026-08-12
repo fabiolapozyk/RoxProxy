@@ -560,13 +560,22 @@ class _ExchangeRow extends ConsumerWidget {
             const SizedBox(width: 4),
             SizedBox(
               width: 16,
-              child: exchange.isBreakpoint
+              child: exchange.isResponseBreakpoint
                   ? Tooltip(
-                      message: 'Suspended at breakpoint',
+                      message: 'Suspended at response breakpoint',
                       child: Icon(
-                        Icons.pause_circle_outline,
+                        Icons.input,
                         size: 13,
                         color: const Color(0xFFFF3B30),
+                      ),
+                    )
+                  : exchange.isBreakpoint
+                  ? Tooltip(
+                      message: 'Suspended at request breakpoint',
+                      child: Icon(
+                        Icons.output,
+                        size: 13,
+                        color: const Color(0xFF34C759),
                       ),
                     )
                   : exchange.isMapLocal

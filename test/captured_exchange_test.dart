@@ -42,6 +42,22 @@ void main() {
     },
   );
 
+  test('applyUpdate recepisce i flag breakpoint (response via update)', () {
+    final current = exchange();
+    final updated = exchange(
+      method: 'POST',
+      url: 'https://example.com/pathe',
+      path: '/pathe',
+    );
+    updated.isBreakpoint = true;
+    updated.isResponseBreakpoint = true;
+
+    current.applyUpdate(updated);
+
+    expect(current.isBreakpoint, isTrue);
+    expect(current.isResponseBreakpoint, isTrue);
+  });
+
   test('applyUpdate aggiorna stato e codice di risposta', () {
     final current = exchange();
     final updated = exchange();
@@ -73,9 +89,11 @@ void main() {
       'isHTTPS': true,
       'isMITMDecrypted': true,
       'isBreakpoint': true,
+      'isResponseBreakpoint': true,
       'state': 'inProgress',
     });
     expect(withFlag.isBreakpoint, isTrue);
+    expect(withFlag.isResponseBreakpoint, isTrue);
 
     final noFlag = CapturedExchange.fromMap({
       'id': 'ex-2',
@@ -93,5 +111,6 @@ void main() {
       'state': 'inProgress',
     });
     expect(noFlag.isBreakpoint, isFalse);
+    expect(noFlag.isResponseBreakpoint, isFalse);
   });
 }

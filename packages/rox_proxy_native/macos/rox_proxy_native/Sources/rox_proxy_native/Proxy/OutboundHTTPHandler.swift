@@ -69,6 +69,7 @@ final class OutboundHTTPHandler: ChannelInboundHandler {
             // Response breakpoint — hold the response back.
             if shouldBreakpointResponse() {
                 exchange.isBreakpoint = true
+                exchange.isResponseBreakpoint = true
                 suspended = SuspendedResponse(head: head)
                 ProxyLogger.breakpoint.info(
                     "Response breakpoint: %{public}@ %{public}@ -> %d suspended",
@@ -240,31 +241,67 @@ final class OutboundHTTPHandler: ChannelInboundHandler {
             context.close(promise: nil)
 
         case .proceed:
-            resume(suspended, context: context)
+            // Apply the user modifications (status/headers/body) and forward.
+            let modified = ResponseModifier.apply(
+                response: decision,
+                originalHead: suspended.head,
+                bodyParts: suspended.bodyParts,
+                exchange: exchange,
+                allocator: inboundContext.channel.allocator
+            )
+            resume(
+                head: modified.head,
+                bodyParts: modified.bodyParts,
+                trailers: suspended.trailers,
+                exchange: modified.exchange,
+                context: context
+            )
         }
     }
 
-    /// Forwards the buffered head/body/end and finalizes the exchange.
-    private func resume(_ s: SuspendedResponse, context: ChannelHandlerContext) {
-        guard exchange.state == .inProgress else { return }
-        exchange.responseBody = responseCapture.bodyContent
-        exchange.responseSize = responseCapture.totalBytes
-        exchange.endTime      = Date()
-        exchange.state        = .completed
+    /// Forwards the (possibly modified) head/body/end and finalizes the
+    /// exchange. When the response body was not modified it is filled from the
+    /// capture; otherwise `exchange` already carries the modified body.
+    private func resume(
+        head: HTTPResponseHead,
+        bodyParts: [ByteBuffer],
+        trailers: HTTPHeaders?,
+        exchange: CapturedExchange,
+        context: ChannelHandlerContext
+    ) {
+        var finalExchange = exchange
+        guard finalExchange.state == .inProgress else { return }
+        if finalExchange.responseBody == nil {
+            finalExchange.responseBody = responseCapture.bodyContent
+            finalExchange.responseSize = responseCapture.totalBytes
+        }
+        finalExchange.endTime = Date()
+        finalExchange.state = .completed
 
-        ProxyLogger.http.debug("Exchange completed: %{public}@ %{public}@ -> %d", exchange.method, exchange.url, exchange.statusCode ?? 0)
+        ProxyLogger.http.debug("Exchange completed: %{public}@ %{public}@ -> %d", finalExchange.method, finalExchange.url, finalExchange.statusCode ?? 0)
 
-        let snapshot = exchange
+        let snapshot = finalExchange
         let store    = self.store
         Task { @MainActor in store.update(snapshot) }
 
-        inboundContext.write(NIOAny(HTTPServerResponsePart.head(s.head)), promise: nil)
-        for buf in s.bodyParts {
+        inboundContext.write(NIOAny(HTTPServerResponsePart.head(head)), promise: nil)
+        for buf in bodyParts {
             inboundContext.write(NIOAny(HTTPServerResponsePart.body(.byteBuffer(buf))), promise: nil)
         }
-        inboundContext.writeAndFlush(NIOAny(HTTPServerResponsePart.end(s.trailers)), promise: nil)
+        inboundContext.writeAndFlush(NIOAny(HTTPServerResponsePart.end(trailers)), promise: nil)
         onComplete()
         context.close(promise: nil)
+    }
+
+    /// Forwards the buffered response as-is (used by auto-proceed paths).
+    private func resume(_ s: SuspendedResponse, context: ChannelHandlerContext) {
+        resume(
+            head: s.head,
+            bodyParts: s.bodyParts,
+            trailers: s.trailers,
+            exchange: exchange,
+            context: context
+        )
     }
 
     // MARK: - Private

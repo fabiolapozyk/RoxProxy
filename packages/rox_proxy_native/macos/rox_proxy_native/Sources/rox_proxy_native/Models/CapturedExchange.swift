@@ -29,6 +29,8 @@ struct CapturedExchange: Identifiable, Sendable {
     var isMITMDecrypted: Bool
     var isMapLocal: Bool = false
     var isBreakpoint: Bool = false
+    /// True when a *response* breakpoint suspended this exchange (RF7.3).
+    var isResponseBreakpoint: Bool = false
     var state: ExchangeState
 
     enum ExchangeState: Sendable, Equatable {
@@ -51,7 +53,8 @@ struct CapturedExchange: Identifiable, Sendable {
         isHTTPS: Bool = false,
         isMITMDecrypted: Bool = false,
         isMapLocal: Bool = false,
-        isBreakpoint: Bool = false
+        isBreakpoint: Bool = false,
+        isResponseBreakpoint: Bool = false
     ) {
         self.id = id
         self.startTime = startTime
@@ -67,6 +70,7 @@ struct CapturedExchange: Identifiable, Sendable {
         self.isMITMDecrypted = isMITMDecrypted
         self.isMapLocal = isMapLocal
         self.isBreakpoint = isBreakpoint
+        self.isResponseBreakpoint = isResponseBreakpoint
         self.state = .inProgress
 
         // Parse path from URL (requires a valid absolute URL with host), fallback to "/"

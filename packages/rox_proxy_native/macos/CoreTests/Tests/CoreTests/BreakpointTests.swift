@@ -284,6 +284,18 @@ final class BreakpointResponseTests: XCTestCase {
         XCTAssertNil(response?.modifiedHeaders)
     }
 
+    func testFromDictionaryWithModifiedStatus() {
+        let dict: [String: Any] = [
+            "breakpointId": "bp-4",
+            "action": "proceed",
+            "modifiedStatus": 418,
+            "modifiedBody": "teapot",
+        ]
+        let response = BreakpointResponse.fromDictionary(dict)
+        XCTAssertEqual(response?.modifiedStatus, 418)
+        XCTAssertEqual(response?.modifiedBody, "teapot")
+    }
+
     func testFromDictionaryInvalid() {
         XCTAssertNil(BreakpointResponse.fromDictionary([:]))
         XCTAssertNil(BreakpointResponse.fromDictionary(["breakpointId": "bp"]))
@@ -792,6 +804,125 @@ final class BreakpointResponseSuspensionTests: XCTestCase {
     }
 }
 
+// MARK: - ResponseModifier
+
+final class ResponseModifierTests: XCTestCase {
+
+    private let allocator = ByteBufferAllocator()
+
+    private func makeHead(status: Int = 200) -> HTTPResponseHead {
+        HTTPResponseHead(
+            version: .http1_1,
+            status: HTTPResponseStatus(statusCode: status),
+            headers: HTTPHeaders([
+                ("Content-Type", "application/json"),
+                ("Content-Length", "5"),
+            ])
+        )
+    }
+
+    private func makeExchange() -> CapturedExchange {
+        CapturedExchange(
+            method: "GET",
+            url: "https://example.com/api",
+            scheme: "https",
+            host: "example.com",
+            port: 443,
+            isHTTPS: true,
+            isMITMDecrypted: true
+        )
+    }
+
+    private func proceedResponse(_ dict: [String: Any]) -> BreakpointResponse {
+        BreakpointResponse.fromDictionary(dict)!
+    }
+
+    func testNoModificationsKeepsResponse() {
+        let result = ResponseModifier.apply(
+            response: .autoProceed(breakpointId: "bp"),
+            originalHead: makeHead(),
+            bodyParts: [],
+            exchange: makeExchange(),
+            allocator: allocator
+        )
+        XCTAssertEqual(result.head.status.code, 200)
+        XCTAssertEqual(result.head.headers.first(name: "Content-Type"), "application/json")
+        XCTAssertEqual(result.bodyParts.count, 0)
+        XCTAssertNil(result.exchange.responseBody)
+    }
+
+    func testStatusChange() {
+        let result = ResponseModifier.apply(
+            response: proceedResponse(["breakpointId": "bp", "action": "proceed", "modifiedStatus": 404]),
+            originalHead: makeHead(status: 200),
+            bodyParts: [],
+            exchange: makeExchange(),
+            allocator: allocator
+        )
+        XCTAssertEqual(result.head.status.code, 404)
+        XCTAssertEqual(result.exchange.statusCode, 404)
+        XCTAssertEqual(result.exchange.statusMessage, "Not Found")
+    }
+
+    func testInvalidStatusIgnored() {
+        let result = ResponseModifier.apply(
+            response: proceedResponse(["breakpointId": "bp", "action": "proceed", "modifiedStatus": 9999]),
+            originalHead: makeHead(status: 200),
+            bodyParts: [],
+            exchange: makeExchange(),
+            allocator: allocator
+        )
+        XCTAssertEqual(result.head.status.code, 200)
+    }
+
+    func testHeadersReplacedWithContentLengthKept() {
+        let result = ResponseModifier.apply(
+            response: proceedResponse([
+                "breakpointId": "bp", "action": "proceed",
+                "modifiedHeaders": [
+                    ["name": "X-Custom", "value": "1"],
+                    ["name": "Content-Length", "value": "999"],
+                ],
+            ]),
+            originalHead: makeHead(),
+            bodyParts: [],
+            exchange: makeExchange(),
+            allocator: allocator
+        )
+        XCTAssertNil(result.head.headers.first(name: "Content-Type"))
+        XCTAssertEqual(result.head.headers.first(name: "X-Custom"), "1")
+        // Body unchanged: original Content-Length is restored.
+        XCTAssertEqual(result.head.headers.first(name: "Content-Length"), "5")
+    }
+
+    func testBodyChangeFixesContentLength() {
+        let result = ResponseModifier.apply(
+            response: proceedResponse(["breakpointId": "bp", "action": "proceed", "modifiedBody": "hello"]),
+            originalHead: makeHead(),
+            bodyParts: [],
+            exchange: makeExchange(),
+            allocator: allocator
+        )
+        XCTAssertEqual(result.bodyParts.count, 1)
+        XCTAssertEqual(result.head.headers.first(name: "Content-Length"), "5")
+        XCTAssertNil(result.head.headers.first(name: "Transfer-Encoding"))
+        XCTAssertEqual(result.exchange.responseBody?.asString(), "hello")
+        XCTAssertEqual(result.exchange.responseSize, 5)
+    }
+
+    func testEmptyBodyChange() {
+        let result = ResponseModifier.apply(
+            response: proceedResponse(["breakpointId": "bp", "action": "proceed", "modifiedBody": ""]),
+            originalHead: makeHead(),
+            bodyParts: [],
+            exchange: makeExchange(),
+            allocator: allocator
+        )
+        XCTAssertEqual(result.head.headers.first(name: "Content-Length"), "0")
+        XCTAssertEqual(result.exchange.responseBody, .empty)
+    }
+}
+
 // MARK: - OutboundHTTPHandler response suspension (integration)
 
 /// No-op handler used only to obtain a ChannelHandlerContext for the inbound
@@ -973,6 +1104,72 @@ final class OutboundHTTPHandlerResponseTests: XCTestCase {
             return XCTFail("expected response body")
         }
         XCTAssertEqual(bodyBuffer.getString(at: 0, length: bodyBuffer.readableBytes), "large body chunk")
+    }
+
+    func testProceedAppliesModifications() throws {
+        let store = makeStore()
+        let (handler, notifier) = makeHandler()
+        let exchange = CapturedExchange(
+            method: "GET",
+            url: "https://example.com/api",
+            scheme: "https",
+            host: "example.com",
+            port: 443,
+            isHTTPS: true,
+            isMITMDecrypted: true
+        )
+
+        let inbound = EmbeddedChannel()
+        let upstream = EmbeddedChannel()
+        defer {
+            _ = try? upstream.finish()
+            _ = try? inbound.finish()
+        }
+        let inboundContext = try makeInboundContext(inbound)
+        try connectUpstream(upstream)
+
+        var completed = false
+        try upstream.pipeline.addHandler(
+            OutboundHTTPHandler(
+                inboundContext: inboundContext,
+                store: store,
+                exchange: exchange,
+                onComplete: { completed = true },
+                breakpointHandler: handler
+            )
+        ).wait()
+
+        try feedResponse(upstream: upstream)
+        XCTAssertEqual(notifier.responses.count, 1)
+
+        // User modifies status and body.
+        let decision = BreakpointResponse.fromDictionary([
+            "breakpointId": notifier.responses.first!.id,
+            "action": "proceed",
+            "modifiedStatus": 201,
+            "modifiedBody": "created",
+        ])!
+        handler.resolve(breakpointId: notifier.responses.first!.id, response: decision)
+        drainDecision(upstream: upstream, inbound: inbound)
+
+        XCTAssertTrue(completed)
+
+        let head = try inbound.readOutbound(as: HTTPServerResponsePart.self)
+        guard case .head(let headPart) = head else {
+            return XCTFail("expected response head")
+        }
+        XCTAssertEqual(headPart.status.code, 201)
+
+        let body = try inbound.readOutbound(as: HTTPServerResponsePart.self)
+        guard case .body(IOData.byteBuffer(let bodyBuffer)) = body else {
+            return XCTFail("expected response body")
+        }
+        XCTAssertEqual(bodyBuffer.getString(at: 0, length: bodyBuffer.readableBytes), "created")
+
+        let end = try inbound.readOutbound(as: HTTPServerResponsePart.self)
+        guard case .end = end else {
+            return XCTFail("expected response end")
+        }
     }
 
     func testCancelClosesClientConnection() throws {

@@ -32,6 +32,19 @@ void main() {
     expect(first['value'], '1');
   });
 
+  test('toMap serializes a response decision with status', () {
+    final map = BreakpointResponse(
+      breakpointId: 'bp-3',
+      action: BreakpointAction.proceed,
+      modifiedStatus: 503,
+      modifiedBody: '{"error":true}',
+      timestamp: DateTime.utc(2026, 8, 10, 10),
+    ).toMap();
+
+    expect(map['modifiedStatus'], 503);
+    expect(map['modifiedBody'], '{"error":true}');
+  });
+
   test('toMap serializes a cancel decision without modifications', () {
     final map = BreakpointResponse(
       breakpointId: 'bp-2',

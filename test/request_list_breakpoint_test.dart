@@ -67,6 +67,56 @@ void main() {
     expect(find.text('Breakpoint this request…'), findsOneWidget);
   });
 
+  testWidgets('marks request breakpoints with the green output icon', (
+    tester,
+  ) async {
+    final exchange = completedExchange()..isBreakpoint = true;
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          filteredExchangesProvider.overrideWithValue([exchange]),
+          breakpointRulesServiceProvider.overrideWithValue(service),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(
+            body: SizedBox(width: 520, height: 900, child: RequestListView()),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('Suspended at request breakpoint'), findsOneWidget);
+    expect(find.byIcon(Icons.output), findsOneWidget);
+    expect(find.byTooltip('Suspended at response breakpoint'), findsNothing);
+  });
+
+  testWidgets('marks response breakpoints with the red input icon', (
+    tester,
+  ) async {
+    final exchange = completedExchange()
+      ..isBreakpoint = true
+      ..isResponseBreakpoint = true;
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          filteredExchangesProvider.overrideWithValue([exchange]),
+          breakpointRulesServiceProvider.overrideWithValue(service),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(
+            body: SizedBox(width: 520, height: 900, child: RequestListView()),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('Suspended at response breakpoint'), findsOneWidget);
+    expect(find.byIcon(Icons.input), findsOneWidget);
+    expect(find.byTooltip('Suspended at request breakpoint'), findsNothing);
+  });
+
   testWidgets(
     'creating a breakpoint from the context menu prefills host/path/method',
     (tester) async {

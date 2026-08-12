@@ -14,6 +14,8 @@ struct BreakpointResponse: Sendable {
     let modifiedUrl: String?
     let modifiedHeaders: [(name: String, value: String)]?
     let modifiedBody: String?
+    /// Response breakpoint only: desired HTTP status code (100-599).
+    let modifiedStatus: Int?
 
     /// Synthetic decision used for timeout (RF5.2) and shutdown (RNF2):
     /// proceed with the original request, no modifications.
@@ -24,7 +26,8 @@ struct BreakpointResponse: Sendable {
             modifiedMethod: nil,
             modifiedUrl: nil,
             modifiedHeaders: nil,
-            modifiedBody: nil
+            modifiedBody: nil,
+            modifiedStatus: nil
         )
     }
 
@@ -51,7 +54,8 @@ struct BreakpointResponse: Sendable {
             modifiedMethod: dict["modifiedMethod"] as? String,
             modifiedUrl: dict["modifiedUrl"] as? String,
             modifiedHeaders: modifiedHeaders,
-            modifiedBody: dict["modifiedBody"] as? String
+            modifiedBody: dict["modifiedBody"] as? String,
+            modifiedStatus: dict["modifiedStatus"] as? Int
         )
     }
 }

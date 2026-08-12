@@ -10,6 +10,7 @@ class BreakpointResponse {
   final String? modifiedUrl;
   final List<HttpHeader>? modifiedHeaders;
   final String? modifiedBody;
+  final int? modifiedStatus;
   final DateTime timestamp;
 
   const BreakpointResponse({
@@ -19,6 +20,7 @@ class BreakpointResponse {
     this.modifiedUrl,
     this.modifiedHeaders,
     this.modifiedBody,
+    this.modifiedStatus,
     required this.timestamp,
   });
 
@@ -31,6 +33,7 @@ class BreakpointResponse {
         ?.map((h) => {'name': h.name, 'value': h.value})
         .toList(),
     'modifiedBody': modifiedBody,
+    'modifiedStatus': modifiedStatus,
     'timestamp': timestamp.toIso8601String(),
   };
 }
