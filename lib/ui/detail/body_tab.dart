@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -173,6 +175,45 @@ class _BodyTabState extends ConsumerState<BodyTab> {
     }
   }
 
+  bool get _isTextualBody => _mode is RenderText || _mode is RenderJson;
+
+  static String _extensionForContentType(String? contentType) {
+    final ct = contentType?.toLowerCase() ?? '';
+    if (ct.contains('json') || ct.contains('javascript')) return 'json';
+    if (ct.contains('html')) return 'html';
+    if (ct.contains('xml')) return 'xml';
+    return 'txt';
+  }
+
+  /// Writes the (already decompressed) body to a temp file and opens it in an
+  /// external editor: VS Code if installed, otherwise the system default.
+  Future<void> _openInEditor() async {
+    final bytes = _cachedBytes;
+    if (bytes == null) return;
+    try {
+      final ext = _extensionForContentType(_contentType);
+      final file = File(
+        '${Directory.systemTemp.path}/roxproxy_${widget.exchange.id}_'
+        '${widget.side.name}.$ext',
+      );
+      await file.writeAsBytes(bytes, flush: true);
+      final vscode = File('/Applications/Visual Studio Code.app');
+      final args = vscode.existsSync()
+          ? ['-a', 'Visual Studio Code', file.path]
+          : [file.path];
+      await Process.run('open', args);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to open in editor: ${e.toString()}'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _fetchIfNeeded() async {
     if (_cachedBytes == null && _ref != null) {
       setState(() {
@@ -281,14 +322,32 @@ class _BodyTabState extends ConsumerState<BodyTab> {
       onKeyEvent: _handleKeyEvent,
       child: Column(
         children: [
-          if (_showSearchBar)
-            BodySearchBar(
-              key: _searchBarKey,
-              text: _searchQuery,
-              onChanged: (query) {
-                setState(() => _searchQuery = query);
-              },
-              onClose: _toggleSearch,
+          if (_isTextualBody || _showSearchBar)
+            Row(
+              children: [
+                if (_isTextualBody)
+                  IconButton(
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 28,
+                      minHeight: 28,
+                    ),
+                    icon: const Icon(Icons.open_in_new, size: 15),
+                    tooltip: 'Open in editor',
+                    onPressed: _openInEditor,
+                  ),
+                if (_showSearchBar)
+                  Expanded(
+                    child: BodySearchBar(
+                      key: _searchBarKey,
+                      text: _searchQuery,
+                      onChanged: (query) {
+                        setState(() => _searchQuery = query);
+                      },
+                      onClose: _toggleSearch,
+                    ),
+                  ),
+              ],
             ),
           Expanded(
             child: BodyContent(

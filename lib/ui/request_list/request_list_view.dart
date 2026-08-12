@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -260,6 +262,10 @@ class _ExchangeRow extends ConsumerWidget {
 
   bool get _canCopyUrl => true; // URL can always be copied
 
+  bool get _canCopyResponse =>
+      (exchange.isHTTPS ? exchange.isMITMDecrypted : true) &&
+      exchange.responseBodyRef != null;
+
   bool get _canAddDomain => exchange.isHTTPS && !exchange.isMITMDecrypted;
 
   bool get _canReplay =>
@@ -375,12 +381,62 @@ class _ExchangeRow extends ConsumerWidget {
     }
   }
 
+  String? get _responseEncoding {
+    for (final h in exchange.responseHeaders ?? const <HttpHeader>[]) {
+      if (h.name.toLowerCase() == 'content-encoding') return h.value;
+    }
+    return null;
+  }
+
+  Future<void> _copyResponse(BuildContext context, WidgetRef ref) async {
+    var bytes = exchange.cachedResponseBody;
+    if (bytes == null && exchange.responseBodyRef != null) {
+      bytes = await ref
+          .read(proxyChannelProvider)
+          .fetchBody(exchange.responseBodyRef!);
+      if (bytes != null) exchange.setCachedResponseBody(bytes);
+    }
+    if (bytes == null) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No response body available'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+      return;
+    }
+    final encoding = _responseEncoding;
+    if (encoding != null &&
+        (encoding.contains('gzip') ||
+            encoding.contains('deflate') ||
+            encoding.contains('br'))) {
+      final decompressed = await ref
+          .read(proxyChannelProvider)
+          .decompressBody(bytes, encoding);
+      if (decompressed != null) bytes = decompressed;
+    }
+    final text = utf8.decode(bytes, allowMalformed: true);
+    await Clipboard.setData(ClipboardData(text: text));
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Response body copied to clipboard'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
   void _showContextMenu(
     BuildContext context,
     WidgetRef ref,
     Offset globalPosition,
   ) async {
-    if (!_canCopyCurl && !_canAddDomain) return;
+    if (!_canCopyCurl && !_canCopyUrl && !_canCopyResponse && !_canAddDomain) {
+      return;
+    }
 
     final settings = ref.read(settingsProvider);
     final alreadyIntercepted = settings.domainRules.any(
@@ -404,6 +460,11 @@ class _ExchangeRow extends ConsumerWidget {
           const PopupMenuItem<String>(
             value: 'url',
             child: Text('Copy URL', style: TextStyle(fontSize: 13)),
+          ),
+        if (_canCopyResponse)
+          const PopupMenuItem<String>(
+            value: 'response',
+            child: Text('Copy response', style: TextStyle(fontSize: 13)),
           ),
         if (_canAddDomain && !alreadyIntercepted)
           PopupMenuItem<String>(
@@ -451,6 +512,8 @@ class _ExchangeRow extends ConsumerWidget {
       await _copyAsCurl(context, ref);
     } else if (result == 'url') {
       await _copyUrl(context);
+    } else if (result == 'response') {
+      await _copyResponse(context, ref);
     } else if (result == 'add_domain') {
       ref.read(settingsProvider.notifier).addDomain(exchange.host);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -539,7 +602,8 @@ class _ExchangeRow extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return GestureDetector(
       onTap: onTap,
-      onSecondaryTapDown: (_canCopyCurl || _canCopyUrl || _canAddDomain)
+      onSecondaryTapDown:
+          (_canCopyCurl || _canCopyUrl || _canCopyResponse || _canAddDomain)
           ? (d) => _showContextMenu(context, ref, d.globalPosition)
           : null,
       child: Container(
