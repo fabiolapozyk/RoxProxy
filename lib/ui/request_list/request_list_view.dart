@@ -33,9 +33,9 @@ class _ColWidths {
   const _ColWidths({
     this.method = 70,
     this.status = 48,
-    this.host = 160,
-    this.duration = 64,
-    this.size = 64,
+    this.host = 120,
+    this.duration = 56,
+    this.size = 52,
   });
 
   _ColWidths copyWith({
@@ -51,6 +51,62 @@ class _ColWidths {
     duration: duration ?? this.duration,
     size: size ?? this.size,
   );
+}
+
+// MARK: - Leading ellipsis
+
+/// Tronca [text] a sinistra, mantenendo visibile la parte finale
+/// (es. "...chiamata.json"), usando la larghezza disponibile.
+String _ellipsizeLeading(
+  String text,
+  double maxWidth,
+  TextStyle style,
+  TextScaler textScaler,
+) {
+  const ellipsis = '…';
+  // Margine di sicurezza: il rendering reale può differire di qualche
+  // frazione di pixel dalla misura del TextPainter; senza margine l'ultimo
+  // carattere verrebbe clippato e la coda del testo risulterebbe troncata.
+  const safetyMargin = 1.0;
+  final usableWidth = (maxWidth - safetyMargin).clamp(0.0, maxWidth);
+  final painter = TextPainter(
+    text: TextSpan(text: text, style: style),
+    maxLines: 1,
+    textDirection: TextDirection.ltr,
+    textScaler: textScaler,
+  )..layout(maxWidth: usableWidth);
+  if (!painter.didExceedMaxLines) return text;
+
+  var lo = 1;
+  var hi = text.length;
+  var best = ellipsis;
+  while (lo <= hi) {
+    final mid = (lo + hi) ~/ 2;
+    final candidate = '$ellipsis${text.substring(text.length - mid)}';
+    final p = TextPainter(
+      text: TextSpan(text: candidate, style: style),
+      maxLines: 1,
+      textDirection: TextDirection.ltr,
+      textScaler: textScaler,
+    )..layout(maxWidth: usableWidth);
+    if (p.didExceedMaxLines) {
+      hi = mid - 1;
+    } else {
+      best = candidate;
+      lo = mid + 1;
+    }
+  }
+  return best;
+}
+
+/// Path mostrato nella riga: per le GET la query string viene rimossa,
+/// così il troncamento non sacrifica la parte utile per i parametri.
+String _pathForDisplay(CapturedExchange exchange) {
+  if (exchange.method != 'GET') return exchange.path;
+  final queryStart = exchange.path.indexOf('?');
+  return queryStart < 0
+      ? exchange.path
+      : exchange.path.substring(0, queryStart);
 }
 
 // MARK: - Root view
@@ -677,10 +733,25 @@ class _ExchangeRow extends ConsumerWidget {
               child: Tooltip(
                 message: exchange.url,
                 waitDuration: const Duration(milliseconds: 500),
-                child: Text(
-                  exchange.path,
-                  style: const TextStyle(fontSize: 12),
-                  overflow: TextOverflow.ellipsis,
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    // Lo stile va fuso col DefaultTextStyle: la misura del
+                    // TextPainter deve usare lo stesso font del rendering,
+                    // altrimenti un font più largo taglia la coda del testo.
+                    final style = DefaultTextStyle.of(
+                      context,
+                    ).style.merge(const TextStyle(fontSize: 12));
+                    return Text(
+                      _ellipsizeLeading(
+                        _pathForDisplay(exchange),
+                        constraints.maxWidth,
+                        style,
+                        MediaQuery.textScalerOf(context),
+                      ),
+                      maxLines: 1,
+                      style: style,
+                    );
+                  },
                 ),
               ),
             ),

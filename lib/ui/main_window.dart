@@ -34,7 +34,7 @@ class _MainWindowState extends ConsumerState<MainWindow> {
   List<String>? _lastMapLocalRuleKeys;
   List<String>? _lastBreakpointRuleKeys;
   bool? _lastBreakpointEnabled;
-  double _listWidth = 520;
+  double _listWidth = 630;
 
   @override
   void initState() {

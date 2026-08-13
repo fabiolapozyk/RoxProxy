@@ -8,7 +8,7 @@ class MainFlutterWindow: NSWindow {
 
     // Set minimum and default window size matching the original SwiftUI app
     self.minSize = NSSize(width: 800, height: 500)
-    self.setContentSize(NSSize(width: 1100, height: 700))
+    self.setContentSize(NSSize(width: 1280, height: 760))
     self.center()
 
     RegisterGeneratedPlugins(registry: flutterViewController)
