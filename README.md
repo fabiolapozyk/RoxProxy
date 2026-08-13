@@ -1,5 +1,8 @@
 # Rox Proxy
 
+[![CI](https://github.com/flapozyk/RoxProxy/actions/workflows/ci.yml/badge.svg)](https://github.com/flapozyk/RoxProxy/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A macOS 14+ desktop HTTP/HTTPS proxy inspector. Built with Flutter (UI) and Swift/SwiftNIO (native proxy engine).
 
 ## Features
@@ -8,8 +11,12 @@ A macOS 14+ desktop HTTP/HTTPS proxy inspector. Built with Flutter (UI) and Swif
 - MITM TLS decryption for configured domains
 - Live request/response stream with filtering
 - Body viewer with gzip/deflate decompression
+- Request/response **breakpoints**: pause traffic matching a rule, inspect and edit before it continues
+- **Map Local**: serve local content in place of remote responses, per URL pattern
+- **Replay**: re-send a captured request, optionally edited, and inspect the new response
 - CA certificate installer for macOS System Keychain
 - Certificate download endpoint for mobile/LAN devices (`http://cert.roxproxy/`)
+- Internal diagnostics endpoints: `GET /health` and `GET /stats` on the proxy port
 - Crash recovery: system proxy is restored on unclean exit
 
 ## Known Limitations
@@ -35,6 +42,18 @@ flutter run -d macos
 # Build release
 flutter build macos
 ```
+
+Prebuilt releases (DMG) are attached to [GitHub Releases](https://github.com/flapozyk/RoxProxy/releases).
+The app is not notarized yet: see "Security warning on first launch" below.
+
+## Roadmap
+
+Ideas tracked as issues with the [`roadmap`](https://github.com/flapozyk/RoxProxy/issues?q=label%3Aroadmap) label:
+
+- [Rewrite rules automatiche](https://github.com/flapozyk/RoxProxy/issues/9) — declarative header/body modification without manual breakpoints
+- [Export HAR](https://github.com/flapozyk/RoxProxy/issues/10) — session export in HAR 1.2 format
+
+Contributions welcome: open an issue or pick one up.
 
 ## Architecture
 
@@ -127,11 +146,17 @@ After the first launch, macOS will remember your choice and won't show this warn
 ## Tests
 
 ```bash
-# Swift (unit + integration + system tests)
-swift test
+# Unit + widget tests (Dart)
+flutter test test/
 
-# Flutter E2E tests
-flutter test integration_test/
+# Core proxy tests (Swift, standalone SPM package)
+cd packages/rox_proxy_native/macos/CoreTests && swift test
+
+# Full verification (format + analyze + tests + debug build)
+./scripts/verify.sh
+
+# End-to-end smoke test (release build, launch app, /health, /stats, real HTTP request)
+./scripts/smoke.sh
 ```
 
 **Copertura:**
@@ -139,10 +164,22 @@ flutter test integration_test/
 - TLS errors, tunnel creation, connection failures
 - DNS failure, connection reset, non-routable IP handling
 - Pipelining rejection (HTTP/1.1)
+- Breakpoints, Map Local, replay
 - System proxy configuration (macOS networksetup)
 - Crash recovery (sentinel file, signal handlers)
 
 Dettagli in [TESTING.md](TESTING.md).
+
+## Releases
+
+Tagging a `v*` tag on `main` triggers `.github/workflows/release.yml`: builds the release app, packages it in a DMG and publishes a draft GitHub Release. To publish:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Then review and publish the draft release on GitHub. Apple notarization is not wired up yet (no Developer ID configured).
 
 ---
 

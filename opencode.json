@@ -1,0 +1,25 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "opencode-go/deepseek-v4-flash",
+  "small_model": "opencode-go/deepseek-v4-flash",
+  "agent": {
+    "manager": {
+      "model": "opencode-go/deepseek-v4-pro",
+      "mode": "subagent",
+      "description": "Supervisore: review diff, decisioni architetturali, escalation. Da usare prima di modifiche a API pubbliche, architettura, protocolli e prima del commit.",
+      "permission": {
+        "edit": "deny",
+        "bash": "deny"
+      }
+    },
+    "vision": {
+      "model": "opencode-go/mimo-v2.5",
+      "mode": "subagent",
+      "description": "Oracolo visivo: analisi screenshot, layout UI Flutter, bug visuali, confronto rendering atteso vs reale.",
+      "permission": {
+        "edit": "deny",
+        "bash": "deny"
+      }
+    }
+  }
+}

@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Set up Flutter macOS toolchain
+        run: flutter config --enable-macos-desktop
+
+      - name: Fetch dependencies
+        run: flutter pub get
+
+      - name: Build release
+        run: flutter build macos --release
+
+      # Notarizzazione non attiva: richiede Developer ID e secrets.
+      # Quando disponibili, aggiungere qui lo step di notarization
+      # (xcodebuild notarytool submit) con secrets APPLE_ID,
+      # APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID.
+
+      - name: Package DMG
+        run: |
+          hdiutil create -volname "Rox Proxy" \
+            -srcfolder "build/macos/Build/Products/Release/Rox Proxy.app" \
+            -ov -format UDZO RoxProxy.dmg
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RoxProxy.dmg
+          path: RoxProxy.dmg
+          if-no-files-found: error
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" RoxProxy.dmg \
+            --repo "${{ github.repository }}" \
+            --draft \
+            --title "Rox Proxy ${{ github.ref_name }}" \
+            --generate-notes
