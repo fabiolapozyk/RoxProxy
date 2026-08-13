@@ -62,4 +62,44 @@ void main() {
       expect(mode, isA<RenderEmpty>());
     });
   });
+
+  group('RenderJson.text', () {
+    test('roundtrips the pretty-printed JSON exactly', () {
+      final raw = '{"name": "Rox", "nested": {"a": [1, 2, 3]}, "ok": true}';
+      final pretty = const JsonEncoder.withIndent(
+        '  ',
+      ).convert(jsonDecode(raw));
+      final mode = BodyRenderer.render(
+        data: Uint8List.fromList(utf8.encode(raw)),
+        contentType: 'application/json',
+      );
+      expect((mode as RenderJson).text, pretty);
+    });
+
+    test('empty lines list yields empty string', () {
+      expect(RenderJson([]).text, '');
+    });
+
+    test('single line JSON roundtrips', () {
+      final mode = BodyRenderer.render(
+        data: Uint8List.fromList(utf8.encode('42')),
+        contentType: 'application/json',
+      );
+      expect((mode as RenderJson).text, '42');
+    });
+
+    test('escaped newlines inside strings do not split lines', () {
+      final raw = '{"msg": "line1\\nline2"}';
+      final pretty = const JsonEncoder.withIndent(
+        '  ',
+      ).convert(jsonDecode(raw));
+      final mode = BodyRenderer.render(
+        data: Uint8List.fromList(utf8.encode(raw)),
+        contentType: 'application/json',
+      );
+      final json = mode as RenderJson;
+      expect(json.lines.length, 3);
+      expect(json.text, pretty);
+    });
+  });
 }

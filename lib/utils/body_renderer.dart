@@ -28,6 +28,10 @@ class JsonLine {
 class RenderJson extends RenderMode {
   final List<JsonLine> lines;
   RenderJson(this.lines);
+
+  /// Ricostruisce il testo JSON completo (una riga per JsonLine).
+  String get text =>
+      lines.map((l) => l.segments.map((s) => s.text).join()).join('\n');
 }
 
 class RenderText extends RenderMode {

@@ -12,6 +12,7 @@ import '../../utils/body_renderer.dart';
 enum BodySide { request, response }
 
 const int _kInlineRenderBytesLimit = 32 * 1024;
+const int _kJsonNonLazyMaxLines = 2000;
 
 RenderMode _renderBodyInBackground((Uint8List, String?) args) =>
     BodyRenderer.render(data: args.$1, contentType: args.$2);
@@ -37,6 +38,7 @@ class _BodyTabState extends ConsumerState<BodyTab> {
   bool _showSearchBar = false;
   RenderMode? _mode;
   bool _rendering = false;
+  bool _selectAll = false;
   final FocusNode _focusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
   final GlobalKey<_BodySearchBarState> _searchBarKey = GlobalKey();
@@ -45,7 +47,6 @@ class _BodyTabState extends ConsumerState<BodyTab> {
   void initState() {
     super.initState();
     _fetchIfNeeded();
-    _setupKeyboardShortcuts();
   }
 
   @override
@@ -53,10 +54,6 @@ class _BodyTabState extends ConsumerState<BodyTab> {
     _focusNode.dispose();
     _scrollController.dispose();
     super.dispose();
-  }
-
-  void _setupKeyboardShortcuts() {
-    // This will be handled by the RawKeyboardListener in the build method
   }
 
   void _toggleSearch() {
@@ -84,12 +81,39 @@ class _BodyTabState extends ConsumerState<BodyTab> {
     });
   }
 
+  bool get _isEditingText {
+    final focusContext = FocusManager.instance.primaryFocus?.context;
+    return focusContext != null &&
+        focusContext.findAncestorWidgetOfExactType<TextField>() != null;
+  }
+
+  bool get _isLargeJson {
+    final mode = _mode;
+    return mode is RenderJson && mode.lines.length > _kJsonNonLazyMaxLines;
+  }
+
+  void _deselectAll() {
+    if (_selectAll) setState(() => _selectAll = false);
+  }
+
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
     if (event is KeyDownEvent) {
       final isMetaPressed =
           HardwareKeyboard.instance.isMetaPressed ||
           HardwareKeyboard.instance.isControlPressed;
-      if (isMetaPressed && event.logicalKey == LogicalKeyboardKey.keyF) {
+      if (isMetaPressed && event.logicalKey == LogicalKeyboardKey.keyA) {
+        if (!_isEditingText && _isLargeJson) {
+          setState(() => _selectAll = true);
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      } else if (isMetaPressed && event.logicalKey == LogicalKeyboardKey.keyC) {
+        if (!_isEditingText && _selectAll && _isLargeJson) {
+          Clipboard.setData(ClipboardData(text: (_mode! as RenderJson).text));
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      } else if (isMetaPressed && event.logicalKey == LogicalKeyboardKey.keyF) {
         _toggleSearch();
         return KeyEventResult.handled;
       } else if (_showSearchBar &&
@@ -119,11 +143,13 @@ class _BodyTabState extends ConsumerState<BodyTab> {
         _searchQuery = '';
         _mode = null;
         _rendering = false;
+        _selectAll = false;
       });
     } else if (bytesChanged) {
       setState(() {
         _mode = null;
         _rendering = false;
+        _selectAll = false;
       });
     } else {
       return;
@@ -354,6 +380,8 @@ class _BodyTabState extends ConsumerState<BodyTab> {
               mode: _mode!,
               searchQuery: _showSearchBar ? _searchQuery : '',
               scrollController: _scrollController,
+              selectAll: _selectAll,
+              onDeselect: _deselectAll,
             ),
           ),
         ],
@@ -366,12 +394,16 @@ class BodyContent extends StatelessWidget {
   final RenderMode mode;
   final String searchQuery;
   final ScrollController? scrollController;
+  final bool selectAll;
+  final VoidCallback? onDeselect;
 
   const BodyContent({
     super.key,
     required this.mode,
     this.searchQuery = '',
     this.scrollController,
+    this.selectAll = false,
+    this.onDeselect,
   });
 
   @override
@@ -390,6 +422,8 @@ class BodyContent extends StatelessWidget {
         lines,
         searchQuery: searchQuery,
         scrollController: scrollController,
+        selectAll: selectAll,
+        onDeselect: onDeselect,
       ),
       RenderText(:final text) => _MonospaceText(
         text,
@@ -587,10 +621,14 @@ class _JsonLineList extends StatelessWidget {
   final List<JsonLine> lines;
   final String searchQuery;
   final ScrollController? scrollController;
+  final bool selectAll;
+  final VoidCallback? onDeselect;
   const _JsonLineList(
     this.lines, {
     this.searchQuery = '',
     this.scrollController,
+    this.selectAll = false,
+    this.onDeselect,
   });
 
   @override
@@ -599,23 +637,64 @@ class _JsonLineList extends StatelessWidget {
     final search = searchQuery.isEmpty
         ? null
         : RegExp(searchQuery, caseSensitive: false);
+    if (lines.length > _kJsonNonLazyMaxLines) {
+      return Listener(
+        onPointerDown: (_) => onDeselect?.call(),
+        child: SelectionArea(
+          onSelectionChanged: (content) {
+            if (content != null) onDeselect?.call();
+          },
+          child: Builder(
+            builder: (context) {
+              final selectionColor =
+                  DefaultSelectionStyle.of(context).selectionColor ??
+                  Theme.of(context).colorScheme.primary;
+              return ListView.builder(
+                controller: scrollController,
+                padding: const EdgeInsets.all(12),
+                itemCount: lines.length,
+                itemBuilder: (context, index) {
+                  return Text.rich(
+                    TextSpan(
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontFamily: 'monospace',
+                        height: 1.5,
+                        backgroundColor: selectAll ? selectionColor : null,
+                      ),
+                      children: _spansForLine(lines[index], isDark, search),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      );
+    }
     return SelectionArea(
-      child: ListView.builder(
+      child: SingleChildScrollView(
         controller: scrollController,
         padding: const EdgeInsets.all(12),
-        itemCount: lines.length,
-        itemBuilder: (context, index) {
-          return Text.rich(
-            TextSpan(
-              style: const TextStyle(
-                fontSize: 12,
-                fontFamily: 'monospace',
-                height: 1.5,
-              ),
-              children: _spansForLine(lines[index], isDark, search),
-            ),
-          );
-        },
+        child: _wholeDocumentText(isDark, search),
+      ),
+    );
+  }
+
+  Widget _wholeDocumentText(bool isDark, RegExp? search) {
+    final spans = <TextSpan>[];
+    for (var i = 0; i < lines.length; i++) {
+      if (i > 0) spans.add(const TextSpan(text: '\n'));
+      spans.addAll(_spansForLine(lines[i], isDark, search));
+    }
+    return Text.rich(
+      TextSpan(
+        style: const TextStyle(
+          fontSize: 12,
+          fontFamily: 'monospace',
+          height: 1.5,
+        ),
+        children: spans,
       ),
     );
   }
