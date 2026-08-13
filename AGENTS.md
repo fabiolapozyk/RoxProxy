@@ -31,6 +31,19 @@ format → analyze → `flutter test test/` → `swift test` (CoreTests) → `fl
    e lanciare `swift test` lì.
 4. Non committare senza verifiche passate.
 
+## Ruoli agentici (modelli)
+
+Tre modelli con ruoli fissi (config in `opencode.json`):
+
+- **Esecutore** (default, ds4 flash): scrive codice, fix, test. Non prende decisioni importanti.
+- **Manager** (subagent `manager`, ds4 pro): review, decisioni architetturali, escalation.
+  Attivare tramite skill `supervisione` prima di: modifiche a Bridge/Models/handler proxy,
+  prima del commit di feature non banali.
+- **Oracolo visivo** (subagent `vision`, mimo-v2.5): bug UI/rendering/screenshot.
+  Attivare tramite skill `debug-visivo`.
+
+Regola: l'esecutore delega, il manager decide, il vision vede.
+
 ## Architettura (mappa rapida)
 
 ```
