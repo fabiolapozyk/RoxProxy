@@ -52,6 +52,8 @@ Ideas tracked as issues with the [`roadmap`](https://github.com/flapozyk/RoxProx
 
 - [Rewrite rules automatiche](https://github.com/flapozyk/RoxProxy/issues/9) — declarative header/body modification without manual breakpoints
 - [Export HAR](https://github.com/flapozyk/RoxProxy/issues/10) — session export in HAR 1.2 format
+- [WebSocket inspection](https://github.com/flapozyk/RoxProxy/issues/17) — capture and inspect WebSocket frames after MITM upgrade
+- [HTTP/2 support](https://github.com/flapozyk/RoxProxy/issues/18) — H2 transport via SwiftNIO, with optional gRPC/Protobuf viewer
 
 Contributions welcome: open an issue or pick one up.
 
