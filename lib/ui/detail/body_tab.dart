@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/captured_exchange.dart';
 import '../../providers/proxy_channel_provider.dart';
 import '../../utils/body_renderer.dart';
+import 'body_search.dart';
 
 enum BodySide { request, response }
 
@@ -39,6 +40,10 @@ class _BodyTabState extends ConsumerState<BodyTab> {
   RenderMode? _mode;
   bool _rendering = false;
   bool _selectAll = false;
+  List<String> _lineTexts = const [];
+  List<BodyMatch> _matches = const [];
+  int _currentMatch = -1;
+  BodySearchLayout? _layout;
   final FocusNode _focusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
   final GlobalKey<_BodySearchBarState> _searchBarKey = GlobalKey();
@@ -61,7 +66,7 @@ class _BodyTabState extends ConsumerState<BodyTab> {
       _showSearchBar = !_showSearchBar;
       if (!_showSearchBar) {
         // Reset search state when closing search bar
-        _searchQuery = '';
+        _resetSearchState();
       }
     });
 
@@ -96,6 +101,74 @@ class _BodyTabState extends ConsumerState<BodyTab> {
     if (_selectAll) setState(() => _selectAll = false);
   }
 
+  void _resetSearchState() {
+    _searchQuery = '';
+    _matches = const [];
+    _currentMatch = -1;
+  }
+
+  TextStyle _bodyTextStyle(bool isHex) => TextStyle(
+    fontSize: isHex ? 11 : 12,
+    fontFamily: 'monospace',
+    height: 1.5,
+  );
+
+  void _onSearchChanged(String query) {
+    setState(() {
+      _searchQuery = query;
+      _matches = findMatches(_lineTexts, query);
+      _currentMatch = -1;
+    });
+  }
+
+  void _handleSearchNext() {
+    if (_matches.isEmpty) return;
+    _jumpTo((_currentMatch + 1) % _matches.length);
+  }
+
+  void _handleSearchPrev() {
+    if (_matches.isEmpty) return;
+    final prev = _currentMatch < 0
+        ? _matches.length - 1
+        : (_currentMatch - 1 + _matches.length) % _matches.length;
+    _jumpTo(prev);
+  }
+
+  void _jumpTo(int index) {
+    setState(() => _currentMatch = index);
+    final controller = _scrollController;
+    final layout = _layout;
+    if (!controller.hasClients || layout == null) return;
+    final maxExtent = controller.position.maxScrollExtent;
+    final target = (layout.offsetForMatch(_matches[index]) - 32).clamp(
+      0.0,
+      maxExtent,
+    );
+    controller.animateTo(
+      target,
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  void _ensureLayoutFor(double width) {
+    final mode = _mode;
+    if (mode is! RenderText && mode is! RenderJson && mode is! RenderHex) {
+      _layout = null;
+      return;
+    }
+    final targetWidth = width - 24; // padding orizzontale (EdgeInsets.all(12))
+    final existing = _layout;
+    if (existing != null && existing.maxWidth == targetWidth) return;
+    _layout = BodySearchLayout(
+      lines: _lineTexts,
+      maxWidth: targetWidth,
+      style: _bodyTextStyle(mode is RenderHex),
+      textScaler: MediaQuery.textScalerOf(context),
+      perLineParagraphs: _isLargeJson,
+    );
+  }
+
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
     if (event is KeyDownEvent) {
       final isMetaPressed =
@@ -121,7 +194,6 @@ class _BodyTabState extends ConsumerState<BodyTab> {
         _toggleSearch();
         return KeyEventResult.handled;
       }
-      // Removed Enter key handling to disable automatic scrolling
     }
     return KeyEventResult.ignored;
   }
@@ -140,16 +212,21 @@ class _BodyTabState extends ConsumerState<BodyTab> {
         _error = null;
         // Reset search state when exchange changes
         _showSearchBar = false;
-        _searchQuery = '';
+        _resetSearchState();
         _mode = null;
         _rendering = false;
         _selectAll = false;
+        _lineTexts = const [];
+        _layout = null;
       });
     } else if (bytesChanged) {
       setState(() {
         _mode = null;
         _rendering = false;
         _selectAll = false;
+        _resetSearchState();
+        _lineTexts = const [];
+        _layout = null;
       });
     } else {
       return;
@@ -306,6 +383,14 @@ class _BodyTabState extends ConsumerState<BodyTab> {
         setState(() {
           _mode = mode;
           _rendering = false;
+          _lineTexts = switch (mode) {
+            RenderText(:final text) => splitLines(text),
+            RenderHex(:final text) => splitLines(text),
+            RenderJson(:final lines) => [
+              for (final l in lines) l.segments.map((s) => s.text).join(),
+            ],
+            _ => const <String>[],
+          };
         });
       } else {
         setState(() => _rendering = false);
@@ -367,21 +452,32 @@ class _BodyTabState extends ConsumerState<BodyTab> {
                     child: BodySearchBar(
                       key: _searchBarKey,
                       text: _searchQuery,
-                      onChanged: (query) {
-                        setState(() => _searchQuery = query);
-                      },
+                      onChanged: _onSearchChanged,
                       onClose: _toggleSearch,
+                      matchCount: _matches.length,
+                      currentMatch: _currentMatch,
+                      onNext: _handleSearchNext,
+                      onPrev: _handleSearchPrev,
                     ),
                   ),
               ],
             ),
           Expanded(
-            child: BodyContent(
-              mode: _mode!,
-              searchQuery: _showSearchBar ? _searchQuery : '',
-              scrollController: _scrollController,
-              selectAll: _selectAll,
-              onDeselect: _deselectAll,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                _ensureLayoutFor(constraints.maxWidth);
+                return BodyContent(
+                  mode: _mode!,
+                  matches: _matches,
+                  currentMatchIndex: _matches.isEmpty || _currentMatch < 0
+                      ? null
+                      : _currentMatch,
+                  layout: _isLargeJson ? _layout : null,
+                  scrollController: _scrollController,
+                  selectAll: _selectAll,
+                  onDeselect: _deselectAll,
+                );
+              },
             ),
           ),
         ],
@@ -392,7 +488,9 @@ class _BodyTabState extends ConsumerState<BodyTab> {
 
 class BodyContent extends StatelessWidget {
   final RenderMode mode;
-  final String searchQuery;
+  final List<BodyMatch> matches;
+  final int? currentMatchIndex;
+  final BodySearchLayout? layout;
   final ScrollController? scrollController;
   final bool selectAll;
   final VoidCallback? onDeselect;
@@ -400,7 +498,9 @@ class BodyContent extends StatelessWidget {
   const BodyContent({
     super.key,
     required this.mode,
-    this.searchQuery = '',
+    this.matches = const [],
+    this.currentMatchIndex,
+    this.layout,
     this.scrollController,
     this.selectAll = false,
     this.onDeselect,
@@ -420,20 +520,25 @@ class BodyContent extends StatelessWidget {
       ),
       RenderJson(:final lines) => _JsonLineList(
         lines,
-        searchQuery: searchQuery,
+        matches: matches,
+        currentMatch: currentMatchIndex,
+        layout: layout,
         scrollController: scrollController,
         selectAll: selectAll,
         onDeselect: onDeselect,
       ),
       RenderText(:final text) => _MonospaceText(
-        text,
-        searchQuery: searchQuery,
+        splitLines(text),
+        isHex: false,
+        matches: matches,
+        currentMatch: currentMatchIndex,
         scrollController: scrollController,
       ),
       RenderHex(:final text) => _MonospaceText(
-        text,
+        splitLines(text),
         isHex: true,
-        searchQuery: searchQuery,
+        matches: matches,
+        currentMatch: currentMatchIndex,
         scrollController: scrollController,
       ),
     };
@@ -444,12 +549,20 @@ class BodySearchBar extends StatefulWidget {
   final String text;
   final ValueChanged<String> onChanged;
   final VoidCallback onClose;
+  final int matchCount;
+  final int currentMatch;
+  final VoidCallback onNext;
+  final VoidCallback onPrev;
 
   const BodySearchBar({
     super.key,
     required this.text,
     required this.onChanged,
     required this.onClose,
+    required this.matchCount,
+    required this.currentMatch,
+    required this.onNext,
+    required this.onPrev,
   });
 
   @override
@@ -493,62 +606,96 @@ class _BodySearchBarState extends State<BodySearchBar> {
     return Container(
       height: 36,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: TextField(
-        controller: _controller,
-        focusNode: _focusNode,
-        decoration: InputDecoration(
-          hintText: 'Search in body…',
-          hintStyle: const TextStyle(fontSize: 13),
-          prefixIcon: const Icon(Icons.search, size: 16),
-          suffixIcon: widget.text.isNotEmpty
-              ? IconButton(
-                  icon: const Icon(Icons.clear, size: 14),
-                  padding: EdgeInsets.zero,
-                  onPressed: () {
-                    widget.onChanged('');
-                    _controller.clear();
-                  },
-                )
-              : null,
-          border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-        ),
-        style: const TextStyle(fontSize: 13),
-        onChanged: widget.onChanged,
-        autofocus: true,
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _controller,
+              focusNode: _focusNode,
+              decoration: InputDecoration(
+                hintText: 'Search in body…',
+                hintStyle: const TextStyle(fontSize: 13),
+                prefixIcon: const Icon(Icons.search, size: 16),
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+              ),
+              style: const TextStyle(fontSize: 13),
+              onChanged: widget.onChanged,
+              onSubmitted: (_) {
+                widget.onNext();
+                // Dopo il submit il framework può staccare il focus: lo
+                // ri-assegno così Enter ripetuto continua a ciclare.
+                _focusNode.requestFocus();
+              },
+              autofocus: true,
+            ),
+          ),
+          if (widget.text.isNotEmpty) ...[
+            Text(
+              widget.matchCount == 0
+                  ? '0/0'
+                  : '${widget.currentMatch < 0 ? 0 : widget.currentMatch + 1}/${widget.matchCount}',
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            IconButton(
+              icon: const Icon(Icons.arrow_upward, size: 14),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+              tooltip: 'Previous match',
+              onPressed: widget.onPrev,
+            ),
+            IconButton(
+              icon: const Icon(Icons.arrow_downward, size: 14),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+              tooltip: 'Next match (Enter)',
+              onPressed: widget.onNext,
+            ),
+            IconButton(
+              icon: const Icon(Icons.clear, size: 14),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+              onPressed: () {
+                widget.onChanged('');
+                _controller.clear();
+              },
+            ),
+          ],
+        ],
       ),
     );
   }
 }
 
 class _MonospaceText extends StatelessWidget {
-  final String text;
+  final List<String> lines;
   final bool isHex;
-  final String searchQuery;
+  final List<BodyMatch> matches;
+  final int? currentMatch;
   final ScrollController? scrollController;
 
   const _MonospaceText(
-    this.text, {
+    this.lines, {
     this.isHex = false,
-    this.searchQuery = '',
+    this.matches = const [],
+    this.currentMatch,
     this.scrollController,
   });
 
+  TextStyle _baseStyle() => TextStyle(
+    fontSize: isHex ? 11 : 12,
+    fontFamily: 'monospace',
+    height: 1.5,
+  );
+
   @override
   Widget build(BuildContext context) {
-    if (searchQuery.isEmpty) {
+    if (matches.isEmpty) {
       return SelectionArea(
         child: SingleChildScrollView(
           controller: scrollController,
           padding: const EdgeInsets.all(12),
-          child: Text(
-            text,
-            style: TextStyle(
-              fontSize: isHex ? 11 : 12,
-              fontFamily: 'monospace',
-              height: 1.5,
-            ),
-          ),
+          child: Text(lines.join('\n'), style: _baseStyle()),
         ),
       );
     }
@@ -557,75 +704,70 @@ class _MonospaceText extends StatelessWidget {
       child: SingleChildScrollView(
         controller: scrollController,
         padding: const EdgeInsets.all(12),
-        child: _buildHighlightedText(text, searchQuery, isHex),
+        child: Text.rich(TextSpan(children: _buildHighlightedText())),
       ),
     );
   }
 
-  Widget _buildHighlightedText(String text, String query, bool isHex) {
-    final matches = <TextSpan>[];
-    final pattern = RegExp(query, caseSensitive: false);
-    int lastEnd = 0;
-
-    for (final match in pattern.allMatches(text)) {
-      // Add text before match
-      if (match.start > lastEnd) {
-        matches.add(
+  List<TextSpan> _buildHighlightedText() {
+    final base = _baseStyle();
+    final highlight = TextStyle(
+      fontSize: isHex ? 11 : 12,
+      fontFamily: 'monospace',
+      height: 1.5,
+      backgroundColor: Colors.orange[400],
+      color: Colors.black,
+    );
+    final other = TextStyle(
+      fontSize: isHex ? 11 : 12,
+      fontFamily: 'monospace',
+      height: 1.5,
+      backgroundColor: Colors.yellow[300],
+      color: Colors.black,
+    );
+    final spans = <TextSpan>[];
+    var matchIdx = 0;
+    for (var i = 0; i < lines.length; i++) {
+      if (i > 0) spans.add(TextSpan(text: '\n', style: base));
+      final line = lines[i];
+      var cursor = 0;
+      while (matchIdx < matches.length && matches[matchIdx].line == i) {
+        final m = matches[matchIdx];
+        if (m.start > cursor) {
+          spans.add(
+            TextSpan(text: line.substring(cursor, m.start), style: base),
+          );
+        }
+        spans.add(
           TextSpan(
-            text: text.substring(lastEnd, match.start),
-            style: TextStyle(
-              fontSize: isHex ? 11 : 12,
-              fontFamily: 'monospace',
-              height: 1.5,
-            ),
+            text: line.substring(m.start, m.end),
+            style: matchIdx == currentMatch ? highlight : other,
           ),
         );
+        cursor = m.end;
+        matchIdx++;
       }
-
-      // Add highlighted match - all matches get the same highlighting
-      matches.add(
-        TextSpan(
-          text: text.substring(match.start, match.end),
-          style: TextStyle(
-            fontSize: isHex ? 11 : 12,
-            fontFamily: 'monospace',
-            height: 1.5,
-            backgroundColor: Colors.yellow[300],
-            color: Colors.black,
-          ),
-        ),
-      );
-
-      lastEnd = match.end;
+      if (cursor < line.length) {
+        spans.add(TextSpan(text: line.substring(cursor), style: base));
+      }
     }
-
-    // Add remaining text after last match
-    if (lastEnd < text.length) {
-      matches.add(
-        TextSpan(
-          text: text.substring(lastEnd),
-          style: TextStyle(
-            fontSize: isHex ? 11 : 12,
-            fontFamily: 'monospace',
-            height: 1.5,
-          ),
-        ),
-      );
-    }
-
-    return Text.rich(TextSpan(children: matches));
+    return spans;
   }
 }
 
 class _JsonLineList extends StatelessWidget {
   final List<JsonLine> lines;
-  final String searchQuery;
+  final List<BodyMatch> matches;
+  final int? currentMatch;
+  final BodySearchLayout? layout;
   final ScrollController? scrollController;
   final bool selectAll;
   final VoidCallback? onDeselect;
   const _JsonLineList(
     this.lines, {
-    this.searchQuery = '',
+    this.matches = const [],
+    this.currentMatch,
+    this.layout,
     this.scrollController,
     this.selectAll = false,
     this.onDeselect,
@@ -634,9 +776,6 @@ class _JsonLineList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final search = searchQuery.isEmpty
-        ? null
-        : RegExp(searchQuery, caseSensitive: false);
     if (lines.length > _kJsonNonLazyMaxLines) {
       return Listener(
         onPointerDown: (_) => onDeselect?.call(),
@@ -649,23 +788,47 @@ class _JsonLineList extends StatelessWidget {
               final selectionColor =
                   DefaultSelectionStyle.of(context).selectionColor ??
                   Theme.of(context).colorScheme.primary;
+              final l = layout;
+              Widget buildItem(BuildContext context, int index) {
+                return Text.rich(
+                  TextSpan(
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontFamily: 'monospace',
+                      height: 1.5,
+                      backgroundColor: selectAll ? selectionColor : null,
+                    ),
+                    children: _spansForLine(
+                      lines[index],
+                      index,
+                      isDark,
+                      matches,
+                      currentMatch,
+                    ),
+                  ),
+                );
+              }
+
+              if (l != null) {
+                // Estensioni esatte per ogni item + max scroll extent esatto:
+                // con il solo ListView.builder la stima dell'estensione media
+                // fa fermare la ricerca "troppo prima" su body grandi.
+                return ListView.custom(
+                  controller: scrollController,
+                  padding: const EdgeInsets.all(12),
+                  itemExtentBuilder: (index, dimensions) => l.lineHeight(index),
+                  childrenDelegate: _ExactExtentDelegate(
+                    builder: buildItem,
+                    childCount: lines.length,
+                    totalExtent: () => l.totalHeight,
+                  ),
+                );
+              }
               return ListView.builder(
                 controller: scrollController,
                 padding: const EdgeInsets.all(12),
                 itemCount: lines.length,
-                itemBuilder: (context, index) {
-                  return Text.rich(
-                    TextSpan(
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontFamily: 'monospace',
-                        height: 1.5,
-                        backgroundColor: selectAll ? selectionColor : null,
-                      ),
-                      children: _spansForLine(lines[index], isDark, search),
-                    ),
-                  );
-                },
+                itemBuilder: buildItem,
               );
             },
           ),
@@ -676,16 +839,16 @@ class _JsonLineList extends StatelessWidget {
       child: SingleChildScrollView(
         controller: scrollController,
         padding: const EdgeInsets.all(12),
-        child: _wholeDocumentText(isDark, search),
+        child: _wholeDocumentText(isDark),
       ),
     );
   }
 
-  Widget _wholeDocumentText(bool isDark, RegExp? search) {
+  Widget _wholeDocumentText(bool isDark) {
     final spans = <TextSpan>[];
     for (var i = 0; i < lines.length; i++) {
       if (i > 0) spans.add(const TextSpan(text: '\n'));
-      spans.addAll(_spansForLine(lines[i], isDark, search));
+      spans.addAll(_spansForLine(lines[i], i, isDark, matches, currentMatch));
     }
     return Text.rich(
       TextSpan(
@@ -701,47 +864,60 @@ class _JsonLineList extends StatelessWidget {
 
   static List<TextSpan> _spansForLine(
     JsonLine line,
+    int lineIndex,
     bool isDark,
-    RegExp? search,
+    List<BodyMatch> matches,
+    int? currentMatch,
   ) {
+    TextStyle styleFor(JsonSegment s) =>
+        TextStyle(color: _colorFor(s.kind, isDark));
+    final lineMatches = matches.where((m) => m.line == lineIndex).toList();
+    if (lineMatches.isEmpty) {
+      return [
+        for (final s in line.segments)
+          TextSpan(text: s.text, style: styleFor(s)),
+      ];
+    }
+
+    final highlight = TextStyle(
+      backgroundColor: Colors.orange[400],
+      color: Colors.black,
+    );
+    final other = TextStyle(
+      backgroundColor: Colors.yellow[300],
+      color: Colors.black,
+    );
+
     final spans = <TextSpan>[];
-    for (final segment in line.segments) {
-      final baseStyle = TextStyle(color: _colorFor(segment.kind, isDark));
-      if (search == null) {
-        spans.add(TextSpan(text: segment.text, style: baseStyle));
-        continue;
-      }
-      final matches = search.allMatches(segment.text);
-      if (matches.isEmpty) {
-        spans.add(TextSpan(text: segment.text, style: baseStyle));
-        continue;
-      }
-      int lastEnd = 0;
-      for (final match in matches) {
-        if (match.start > lastEnd) {
+    var segStart = 0;
+    for (final seg in line.segments) {
+      final segText = seg.text;
+      final segEnd = segStart + segText.length;
+      var cursor = 0;
+      for (final m in lineMatches) {
+        if (m.end <= segStart) continue;
+        if (m.start >= segEnd) break;
+        final ms = (m.start < segStart ? segStart : m.start) - segStart;
+        final me = (m.end > segEnd ? segEnd : m.end) - segStart;
+        if (ms > cursor) {
           spans.add(
-            TextSpan(
-              text: segment.text.substring(lastEnd, match.start),
-              style: baseStyle,
-            ),
+            TextSpan(text: segText.substring(cursor, ms), style: styleFor(seg)),
           );
         }
         spans.add(
           TextSpan(
-            text: segment.text.substring(match.start, match.end),
-            style: TextStyle(
-              backgroundColor: Colors.yellow[300],
-              color: Colors.black,
-            ),
+            text: segText.substring(ms, me),
+            style: m.index == currentMatch ? highlight : other,
           ),
         );
-        lastEnd = match.end;
+        cursor = me;
       }
-      if (lastEnd < segment.text.length) {
+      if (cursor < segText.length) {
         spans.add(
-          TextSpan(text: segment.text.substring(lastEnd), style: baseStyle),
+          TextSpan(text: segText.substring(cursor), style: styleFor(seg)),
         );
       }
+      segStart = segEnd;
     }
     return spans;
   }
@@ -762,5 +938,31 @@ class _JsonLineList extends StatelessWidget {
       JsonTokenKind.other =>
         isDark ? const Color(0xFFD4D4D4) : const Color(0xFF1E1E1E),
     };
+  }
+}
+
+/// Delegate per la ListView lazy del JSON con max scroll extent esatto.
+///
+/// `SliverChildBuilderDelegate` di default non fornisce una stima (torna null):
+/// la viewport estrapola dall'estensione media degli item costruiti, che su
+/// body grandi con altezze variabili sottostima il massimo e fa fermare
+/// l'animateTo della ricerca troppo prima.
+class _ExactExtentDelegate extends SliverChildBuilderDelegate {
+  final double Function() totalExtent;
+
+  _ExactExtentDelegate({
+    required NullableIndexedWidgetBuilder builder,
+    required int childCount,
+    required this.totalExtent,
+  }) : super(builder, childCount: childCount);
+
+  @override
+  double? estimateMaxScrollOffset(
+    int firstIndex,
+    int lastIndex,
+    double leadingScrollOffset,
+    double trailingScrollOffset,
+  ) {
+    return totalExtent();
   }
 }
