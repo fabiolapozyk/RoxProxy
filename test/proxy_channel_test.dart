@@ -84,6 +84,7 @@ void main() {
       expect(rule['hostPattern'], '*.example.com');
       expect(rule['pathPattern'], '/api/**');
       expect(rule['httpMethod'], 'GET');
+      expect(rule['responseSource'], MapLocalRule.sourceFile);
       expect(rule['filePath'], '/tmp/mock.json');
       expect(rule['statusCode'], 201);
       expect(rule['contentType'], 'application/json');
@@ -92,6 +93,38 @@ void main() {
       expect(rule['isCaseSensitive'], isFalse);
       expect(rule['useRegex'], isTrue);
       expect(rule['id'], isNotEmpty);
+    });
+
+    test('startProxy forwards inline Map Local rules', () async {
+      Map<String, dynamic>? capturedArgs;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(controlChannel, (call) async {
+            expect(call.method, 'startProxy');
+            capturedArgs = Map<String, dynamic>.from(call.arguments as Map);
+            return {'port': 8080};
+          });
+
+      await proxyChannel.startProxy(
+        port: 8080,
+        domainRules: const [],
+        connectionTimeoutSeconds: 30,
+        setSystemProxy: true,
+        httpsInterceptionEnabled: true,
+        mapLocalRules: [
+          MapLocalRule(
+            responseSource: MapLocalRule.sourceInline,
+            inlineBody: '{"ok":true}',
+            statusCode: 200,
+          ),
+        ],
+      );
+
+      final rules = capturedArgs!['mapLocalRules'] as List;
+      expect(rules.length, 1);
+      final rule = Map<String, dynamic>.from(rules.single as Map);
+      expect(rule['responseSource'], MapLocalRule.sourceInline);
+      expect(rule['inlineBody'], '{"ok":true}');
+      expect(rule['filePath'], '');
     });
 
     test('startProxy defaults to no Map Local rules', () async {

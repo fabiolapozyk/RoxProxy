@@ -9,6 +9,9 @@ void main() {
       expect(rule.hostPattern, '*');
       expect(rule.pathPattern, '**');
       expect(rule.httpMethod, 'ANY');
+      expect(rule.responseSource, MapLocalRule.sourceFile);
+      expect(rule.inlineBody, isNull);
+      expect(rule.isInline, isFalse);
       expect(rule.filePath, '');
       expect(rule.statusCode, 200);
       expect(rule.contentType, isNull);
@@ -57,6 +60,46 @@ void main() {
       expect(map.containsKey('notes'), isFalse);
       expect(map.containsKey('id'), isTrue);
       expect(map.containsKey('pathPattern'), isTrue);
+      expect(map['responseSource'], MapLocalRule.sourceFile);
+      expect(map.containsKey('inlineBody'), isTrue);
+    });
+
+    test('inline rule round-trips through toMap/fromMap', () {
+      final rule = MapLocalRule(
+        responseSource: MapLocalRule.sourceInline,
+        inlineBody: '{"ok":true}',
+        filePath: '',
+        statusCode: 201,
+      );
+      final map = rule.toMap();
+      expect(map['responseSource'], MapLocalRule.sourceInline);
+      expect(map['inlineBody'], '{"ok":true}');
+
+      final restored = MapLocalRule.fromMap(map);
+      expect(restored.isInline, isTrue);
+      expect(restored.inlineBody, '{"ok":true}');
+      expect(restored.filePath, '');
+    });
+
+    test('inline rule round-trips through toJson/fromJson', () {
+      final rule = MapLocalRule(
+        name: 'Inline mock',
+        responseSource: MapLocalRule.sourceInline,
+        inlineBody: '{"ok":true}',
+      );
+      final restored = MapLocalRule.fromJson(rule.toJson());
+      expect(restored.isInline, isTrue);
+      expect(restored.inlineBody, '{"ok":true}');
+      expect(restored.filePath, '');
+    });
+
+    test('fromJson treats rules without responseSource as file rules', () {
+      final rule = MapLocalRule.fromJson({
+        'id': 'abc',
+        'filePath': '/tmp/a.json',
+      });
+      expect(rule.responseSource, MapLocalRule.sourceFile);
+      expect(rule.isInline, isFalse);
     });
 
     test('toJson/fromJson round-trip with metadata', () {
@@ -112,6 +155,16 @@ void main() {
       expect(copy.id, isNot(rule.id));
       expect(copy.pathPattern, '/api/*');
       expect(copy.name, 'X (copy)');
+    });
+
+    test('duplicate preserves the inline payload', () {
+      final rule = MapLocalRule(
+        responseSource: MapLocalRule.sourceInline,
+        inlineBody: '{"a":1}',
+      );
+      final copy = rule.duplicate();
+      expect(copy.isInline, isTrue);
+      expect(copy.inlineBody, '{"a":1}');
     });
   });
 }

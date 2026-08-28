@@ -41,6 +41,9 @@ void main() {
   );
 
   Future<void> pumpList(WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1200, 1000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -111,6 +114,14 @@ void main() {
         findsOneWidget,
       );
 
+      await tester.ensureVisible(find.text('Inline'));
+      await tester.tap(find.text('Inline'));
+      await tester.pumpAndSettle();
+      final bodyField = find.widgetWithText(TextField, 'Response body');
+      await tester.ensureVisible(bodyField);
+      await tester.enterText(bodyField, '{"ok":true}');
+      await tester.pumpAndSettle();
+
       await tester.ensureVisible(find.text('Save'));
       await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
@@ -121,8 +132,10 @@ void main() {
       expect(rules.single.hostPattern, 'api.example.com');
       expect(rules.single.pathPattern, '/users');
       expect(rules.single.httpMethod, 'GET');
+      expect(rules.single.isInline, isTrue);
       final persisted = await service.load();
       expect(persisted.single.pathPattern, '/users');
+      expect(persisted.single.inlineBody, '{"ok":true}');
 
       // "Rule added" snackbar is shown.
       expect(find.textContaining('Map Local rule added'), findsOneWidget);

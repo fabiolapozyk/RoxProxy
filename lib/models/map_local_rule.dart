@@ -1,13 +1,19 @@
 import '../utils/uuid.dart';
 
 /// A "Map Local" rule: intercept matching HTTP(S) requests and respond
-/// with the contents of a local file instead of forwarding them upstream.
+/// with the contents of a local file or an inline body instead of
+/// forwarding them upstream.
 class MapLocalRule {
+  static const String sourceFile = 'file';
+  static const String sourceInline = 'inline';
+
   final String id;
   String? name;
   String hostPattern;
   String pathPattern;
   String httpMethod;
+  String responseSource;
+  String? inlineBody;
   String filePath;
   int statusCode;
   String? contentType;
@@ -27,6 +33,8 @@ class MapLocalRule {
     this.hostPattern = '*',
     this.pathPattern = '**',
     this.httpMethod = 'ANY',
+    this.responseSource = sourceFile,
+    this.inlineBody,
     this.filePath = '',
     this.statusCode = 200,
     this.contentType,
@@ -44,6 +52,8 @@ class MapLocalRule {
        createdAt = createdAt ?? DateTime.now(),
        updatedAt = updatedAt ?? DateTime.now();
 
+  bool get isInline => responseSource == sourceInline;
+
   String get displayName =>
       (name != null && name!.trim().isNotEmpty) ? name!.trim() : pathPattern;
 
@@ -53,6 +63,8 @@ class MapLocalRule {
     'hostPattern': hostPattern,
     'pathPattern': pathPattern,
     'httpMethod': httpMethod,
+    'responseSource': responseSource,
+    'inlineBody': inlineBody,
     'filePath': filePath,
     'statusCode': statusCode,
     'contentType': contentType,
@@ -67,6 +79,8 @@ class MapLocalRule {
     hostPattern: map['hostPattern'] as String? ?? '*',
     pathPattern: map['pathPattern'] as String? ?? '**',
     httpMethod: map['httpMethod'] as String? ?? 'ANY',
+    responseSource: map['responseSource'] as String? ?? sourceFile,
+    inlineBody: map['inlineBody'] as String?,
     filePath: map['filePath'] as String? ?? '',
     statusCode: map['statusCode'] as int? ?? 200,
     contentType: map['contentType'] as String?,
@@ -87,6 +101,8 @@ class MapLocalRule {
     'hostPattern': hostPattern,
     'pathPattern': pathPattern,
     'httpMethod': httpMethod,
+    'responseSource': responseSource,
+    'inlineBody': inlineBody,
     'filePath': filePath,
     'statusCode': statusCode,
     'contentType': contentType,
@@ -107,6 +123,8 @@ class MapLocalRule {
     hostPattern: json['hostPattern'] as String? ?? '*',
     pathPattern: json['pathPattern'] as String? ?? '**',
     httpMethod: json['httpMethod'] as String? ?? 'ANY',
+    responseSource: json['responseSource'] as String? ?? sourceFile,
+    inlineBody: json['inlineBody'] as String?,
     filePath: json['filePath'] as String? ?? '',
     statusCode: json['statusCode'] as int? ?? 200,
     contentType: json['contentType'] as String?,
@@ -132,6 +150,8 @@ class MapLocalRule {
     String? hostPattern,
     String? pathPattern,
     String? httpMethod,
+    String? responseSource,
+    String? inlineBody,
     String? filePath,
     int? statusCode,
     String? contentType,
@@ -149,6 +169,8 @@ class MapLocalRule {
     hostPattern: hostPattern ?? this.hostPattern,
     pathPattern: pathPattern ?? this.pathPattern,
     httpMethod: httpMethod ?? this.httpMethod,
+    responseSource: responseSource ?? this.responseSource,
+    inlineBody: inlineBody ?? this.inlineBody,
     filePath: filePath ?? this.filePath,
     statusCode: statusCode ?? this.statusCode,
     contentType: contentType ?? this.contentType,
@@ -169,6 +191,8 @@ class MapLocalRule {
     hostPattern: hostPattern,
     pathPattern: pathPattern,
     httpMethod: httpMethod,
+    responseSource: responseSource,
+    inlineBody: inlineBody,
     filePath: filePath,
     statusCode: statusCode,
     contentType: contentType,

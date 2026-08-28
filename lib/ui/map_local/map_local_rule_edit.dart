@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
@@ -14,6 +16,8 @@ class MapLocalRuleEditDialog extends StatefulWidget {
 }
 
 class _MapLocalRuleEditDialogState extends State<MapLocalRuleEditDialog> {
+  static const int _inlineBodySoftLimitBytes = 1024 * 1024;
+
   static const _httpMethods = [
     'ANY',
     'GET',
@@ -44,10 +48,12 @@ class _MapLocalRuleEditDialogState extends State<MapLocalRuleEditDialog> {
   late final TextEditingController _hostController;
   late final TextEditingController _pathController;
   late final TextEditingController _filePathController;
+  late final TextEditingController _bodyController;
   late final TextEditingController _statusCodeController;
   late final TextEditingController _notesController;
 
   late String _httpMethod;
+  late String _responseSource;
   String? _contentType;
   late bool _isEnabled;
   late bool _isCaseSensitive;
@@ -57,6 +63,12 @@ class _MapLocalRuleEditDialogState extends State<MapLocalRuleEditDialog> {
 
   bool get _isEditing => widget.initial != null;
 
+  bool get _isInline => _responseSource == MapLocalRule.sourceInline;
+
+  bool get _canSave => _isInline
+      ? _bodyController.text.trim().isNotEmpty
+      : _filePathController.text.trim().isNotEmpty;
+
   @override
   void initState() {
     super.initState();
@@ -65,11 +77,15 @@ class _MapLocalRuleEditDialogState extends State<MapLocalRuleEditDialog> {
     _hostController = TextEditingController(text: r?.hostPattern ?? '*');
     _pathController = TextEditingController(text: r?.pathPattern ?? '**');
     _filePathController = TextEditingController(text: r?.filePath ?? '');
+    _bodyController = TextEditingController(text: r?.inlineBody ?? '');
     _statusCodeController = TextEditingController(
       text: (r?.statusCode ?? 200).toString(),
     );
     _notesController = TextEditingController(text: r?.notes ?? '');
     _httpMethod = r?.httpMethod ?? 'ANY';
+    _responseSource = r?.responseSource == MapLocalRule.sourceInline
+        ? MapLocalRule.sourceInline
+        : MapLocalRule.sourceFile;
     _contentType = r?.contentType;
     _isEnabled = r?.isEnabled ?? true;
     _isCaseSensitive = r?.isCaseSensitive ?? true;
@@ -95,6 +111,7 @@ class _MapLocalRuleEditDialogState extends State<MapLocalRuleEditDialog> {
     _hostController.dispose();
     _pathController.dispose();
     _filePathController.dispose();
+    _bodyController.dispose();
     _statusCodeController.dispose();
     _notesController.dispose();
     for (final c in _customHeaderControllers) {
@@ -126,7 +143,10 @@ class _MapLocalRuleEditDialogState extends State<MapLocalRuleEditDialog> {
       if (key.isNotEmpty) headers[key] = c.value.text;
     }
 
-    final updated = (widget.initial ?? MapLocalRule()).copyWith(
+    final base = widget.initial ?? MapLocalRule();
+    final isInline = _isInline;
+    final updated = MapLocalRule(
+      id: base.id,
       name: _nameController.text.trim().isEmpty
           ? null
           : _nameController.text.trim(),
@@ -137,16 +157,21 @@ class _MapLocalRuleEditDialogState extends State<MapLocalRuleEditDialog> {
           ? '**'
           : _pathController.text.trim(),
       httpMethod: _httpMethod,
-      filePath: _filePathController.text.trim(),
+      responseSource: _responseSource,
+      inlineBody: isInline ? _bodyController.text : null,
+      filePath: isInline ? '' : _filePathController.text.trim(),
       statusCode: statusCode,
       contentType: _contentType,
       customHeaders: headers,
       isEnabled: _isEnabled,
       isCaseSensitive: _isCaseSensitive,
       useRegex: _useRegex,
+      watchFile: base.watchFile,
+      cacheTTL: base.cacheTTL,
       notes: _notesController.text.trim().isEmpty
           ? null
           : _notesController.text.trim(),
+      createdAt: base.createdAt,
     );
     Navigator.of(context).pop(updated);
   }
@@ -160,7 +185,7 @@ class _MapLocalRuleEditDialogState extends State<MapLocalRuleEditDialog> {
       ),
       content: SizedBox(
         width: 520,
-        height: 560,
+        height: 620,
         child: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -215,7 +240,10 @@ class _MapLocalRuleEditDialogState extends State<MapLocalRuleEditDialog> {
                           DropdownMenuItem(
                             value: t,
                             child: Text(
-                              t ?? 'Auto-detect',
+                              t ??
+                                  (_isInline
+                                      ? 'Auto-detect (application/json)'
+                                      : 'Auto-detect'),
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
@@ -226,31 +254,89 @@ class _MapLocalRuleEditDialogState extends State<MapLocalRuleEditDialog> {
                 ],
               ),
               const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _filePathController,
-                      style: const TextStyle(fontSize: 13),
-                      decoration: _decoration(label: 'Local response file'),
-                      readOnly: true,
-                    ),
+              Text(
+                'Response source',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
+              ),
+              const SizedBox(height: 4),
+              SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(
+                    value: MapLocalRule.sourceFile,
+                    label: Text('File', style: TextStyle(fontSize: 12)),
                   ),
-                  const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    onPressed: _pickFile,
-                    icon: const Icon(Icons.folder_open, size: 16),
-                    label: const Text('Browse'),
-                    style: OutlinedButton.styleFrom(
-                      textStyle: const TextStyle(fontSize: 12),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
+                  ButtonSegment(
+                    value: MapLocalRule.sourceInline,
+                    label: Text('Inline', style: TextStyle(fontSize: 12)),
+                  ),
+                ],
+                selected: {_responseSource},
+                showSelectedIcon: false,
+                style: SegmentedButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                ),
+                onSelectionChanged: (selection) =>
+                    setState(() => _responseSource = selection.first),
+              ),
+              const SizedBox(height: 8),
+              if (_isInline) ...[
+                TextField(
+                  controller: _bodyController,
+                  minLines: 7,
+                  maxLines: 12,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontFamily: 'Menlo',
+                    fontFamilyFallback: ['monospace'],
+                  ),
+                  decoration: _decoration(
+                    label: 'Response body',
+                    hintText: '{\n  "ok": true\n}',
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
+                if (utf8.encode(_bodyController.text).length >
+                    _inlineBodySoftLimitBytes)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      'Body larger than 1 MB: high memory usage while the proxy is running.',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.orange.shade800,
                       ),
                     ),
                   ),
-                ],
-              ),
+              ] else
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _filePathController,
+                        style: const TextStyle(fontSize: 13),
+                        decoration: _decoration(label: 'Local response file'),
+                        onChanged: (_) => setState(() {}),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      onPressed: _pickFile,
+                      icon: const Icon(Icons.folder_open, size: 16),
+                      label: const Text('Browse'),
+                      style: OutlinedButton.styleFrom(
+                        textStyle: const TextStyle(fontSize: 12),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               const SizedBox(height: 8),
               Row(
                 children: [
@@ -374,7 +460,10 @@ class _MapLocalRuleEditDialogState extends State<MapLocalRuleEditDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
         ),
-        FilledButton(onPressed: _save, child: const Text('Save')),
+        FilledButton(
+          onPressed: _canSave ? _save : null,
+          child: const Text('Save'),
+        ),
       ],
     );
   }
