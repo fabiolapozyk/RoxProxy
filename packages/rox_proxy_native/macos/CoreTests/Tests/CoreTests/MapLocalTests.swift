@@ -209,6 +209,64 @@ final class MapLocalMatcherTests: XCTestCase {
         XCTAssertNil(MapLocalRule.fromDictionary(["id": "not-a-uuid", "pathPattern": "/", "filePath": "/tmp/a"]))
     }
 
+    func testFromDictionaryInline() {
+        let id = UUID()
+        let dict: [String: Any] = [
+            "id": id.uuidString,
+            "hostPattern": "*.example.com",
+            "pathPattern": "/api/*",
+            "httpMethod": "POST",
+            "responseSource": "inline",
+            "inlineBody": "{\"ok\":true}",
+            "statusCode": 201,
+        ]
+        guard let rule = MapLocalRule.fromDictionary(dict) else {
+            return XCTFail("fromDictionary should parse a valid inline dict")
+        }
+        XCTAssertTrue(rule.isInline)
+        XCTAssertEqual(rule.inlineBody, "{\"ok\":true}")
+        XCTAssertEqual(rule.filePath, "")
+        XCTAssertEqual(rule.statusCode, 201)
+    }
+
+    func testFromDictionaryInlineRejectsEmptyBody() {
+        let dict: [String: Any] = [
+            "id": UUID().uuidString,
+            "pathPattern": "/",
+            "responseSource": "inline",
+        ]
+        XCTAssertNil(MapLocalRule.fromDictionary(dict))
+
+        let whitespace: [String: Any] = [
+            "id": UUID().uuidString,
+            "pathPattern": "/",
+            "responseSource": "inline",
+            "inlineBody": "   ",
+        ]
+        XCTAssertNotNil(MapLocalRule.fromDictionary(whitespace))
+    }
+
+    func testFromDictionaryFileRejectsEmptyPath() {
+        let dict: [String: Any] = [
+            "id": UUID().uuidString,
+            "pathPattern": "/",
+            "responseSource": "file",
+        ]
+        XCTAssertNil(MapLocalRule.fromDictionary(dict))
+    }
+
+    func testFromDictionaryFileDefaultsWhenSourceMissing() {
+        let dict: [String: Any] = [
+            "id": UUID().uuidString,
+            "pathPattern": "/",
+            "filePath": "/tmp/a.txt",
+        ]
+        let rule = MapLocalRule.fromDictionary(dict)
+        XCTAssertNotNil(rule)
+        XCTAssertEqual(rule?.responseSource, "file")
+        XCTAssertNil(rule?.inlineBody)
+    }
+
     // MARK: - Response building
 
     func testBuildResponseDefaults() {
@@ -269,6 +327,43 @@ final class MapLocalMatcherTests: XCTestCase {
         XCTAssertEqual(built.statusCode, 200)
     }
 
+    // MARK: - Inline response building
+
+    func testBuildResponseInlineDefaults() {
+        let rule = inlineRule(path: "/api", body: "{\"ok\":true}")
+        let built = MapLocalHandler.buildResponseSync(rule: rule, fileData: Data("{\"ok\":true}".utf8), modificationDate: nil)
+        XCTAssertEqual(built.statusCode, 200)
+        XCTAssertEqual(String(data: built.body, encoding: .utf8), "{\"ok\":true}")
+        let headers = Dictionary(uniqueKeysWithValues: built.headers.map { ($0.name.lowercased(), $0.value) })
+        XCTAssertEqual(headers["content-type"], "application/json")
+        XCTAssertEqual(headers["content-length"], "11")
+        XCTAssertEqual(headers["cache-control"], "no-cache")
+        XCTAssertNil(headers["last-modified"])
+    }
+
+    func testBuildResponseInlineCustomContentTypeOverridesDefault() {
+        let rule = inlineRule(path: "/api", body: "<p>hi</p>", contentType: "text/html; charset=utf-8")
+        let built = MapLocalHandler.buildResponseSync(rule: rule, fileData: Data("<p>hi</p>".utf8), modificationDate: nil)
+        let headers = Dictionary(uniqueKeysWithValues: built.headers.map { ($0.name.lowercased(), $0.value) })
+        XCTAssertEqual(headers["content-type"], "text/html; charset=utf-8")
+    }
+
+    func testBuildResponseInlineIgnoresModificationDate() {
+        let rule = inlineRule(path: "/api", body: "{}")
+        let date = Date(timeIntervalSince1970: 1_600_000_000)
+        let built = MapLocalHandler.buildResponseSync(rule: rule, fileData: Data("{}".utf8), modificationDate: date)
+        let headers = Dictionary(uniqueKeysWithValues: built.headers.map { ($0.name.lowercased(), $0.value) })
+        XCTAssertNil(headers["last-modified"])
+    }
+
+    func testBuildResponseInlineEmptyBodyData() {
+        let rule = inlineRule(path: "/api", body: "")
+        let built = MapLocalHandler.buildResponseSync(rule: rule, fileData: Data(), modificationDate: nil)
+        let headers = Dictionary(uniqueKeysWithValues: built.headers.map { ($0.name.lowercased(), $0.value) })
+        XCTAssertEqual(headers["content-type"], "application/json")
+        XCTAssertEqual(headers["content-length"], "0")
+    }
+
     // MARK: - Content type detection
 
     func testContentTypeDetection() {
@@ -298,6 +393,33 @@ final class MapLocalMatcherTests: XCTestCase {
             pathPattern: path,
             httpMethod: method,
             filePath: filePath,
+            statusCode: statusCode,
+            contentType: contentType,
+            customHeaders: customHeaders,
+            isEnabled: enabled,
+            isCaseSensitive: caseSensitive,
+            useRegex: useRegex
+        )
+    }
+
+    private func inlineRule(
+        host: String = "*",
+        path: String = "**",
+        method: String = "ANY",
+        body: String,
+        statusCode: Int = 200,
+        contentType: String? = nil,
+        customHeaders: [String: String] = [:],
+        enabled: Bool = true,
+        caseSensitive: Bool = true,
+        useRegex: Bool = false
+    ) -> MapLocalRule {
+        MapLocalRule(
+            hostPattern: host,
+            pathPattern: path,
+            httpMethod: method,
+            responseSource: MapLocalRule.sourceInline,
+            inlineBody: body,
             statusCode: statusCode,
             contentType: contentType,
             customHeaders: customHeaders,

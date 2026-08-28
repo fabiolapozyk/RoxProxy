@@ -43,7 +43,8 @@ enum MapLocalHandler {
             case .success(let built):
                 ProxyLogger.map.info(
                     "Map Local: serving %{public}@ (%d bytes, status %d) from %{public}@",
-                    exchange.url, built.body.count, built.statusCode, rule.filePath
+                    exchange.url, built.body.count, built.statusCode,
+                    rule.isInline ? "inline body" : rule.filePath
                 )
                 ProxyMetrics.shared.addSentBytes(Int64(built.body.count))
 
@@ -108,12 +109,30 @@ enum MapLocalHandler {
     // MARK: - Response building
 
     /// Reads the file asynchronously (global queue) and completes on the given
-    /// event loop with a built response.
+    /// event loop with a built response. Inline rules skip I/O entirely and
+    /// use the rule's body bytes directly.
     static func buildResponse(
         rule: MapLocalRule,
         eventLoop: EventLoop,
         completion: @escaping (Result<BuiltResponse, MapLocalFileError>) -> Void
     ) {
+        if rule.isInline {
+            guard let inlineBody = rule.inlineBody, !inlineBody.isEmpty else {
+                eventLoop.execute {
+                    completion(.failure(.unreadable("inline body is empty")))
+                }
+                return
+            }
+            eventLoop.execute {
+                completion(.success(buildResponseSync(
+                    rule: rule,
+                    fileData: Data(inlineBody.utf8),
+                    modificationDate: nil
+                )))
+            }
+            return
+        }
+
         let filePath = rule.filePath
         DispatchQueue.global(qos: .userInitiated).async {
             let result: Result<BuiltResponse, MapLocalFileError>
@@ -143,13 +162,15 @@ enum MapLocalHandler {
         let customContentType = rule.contentType?.trimmingCharacters(in: .whitespaces)
         if let customContentType, !customContentType.isEmpty {
             headers.append((name: "Content-Type", value: customContentType))
+        } else if rule.isInline {
+            headers.append((name: "Content-Type", value: "application/json"))
         } else if let detected = contentType(forFile: rule.filePath) {
             headers.append((name: "Content-Type", value: detected))
         }
 
         headers.append((name: "Content-Length", value: "\(fileData.count)"))
 
-        if let modificationDate {
+        if let modificationDate, !rule.isInline {
             headers.append((name: "Last-Modified", value: httpDate(modificationDate)))
         }
 

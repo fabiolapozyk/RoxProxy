@@ -117,20 +117,24 @@ class _RuleTile extends StatelessWidget {
                 Row(
                   children: [
                     Icon(
-                      rule.filePath.isEmpty
-                          ? Icons.insert_drive_file_outlined
-                          : Icons.folder_outlined,
+                      rule.isInline
+                          ? Icons.code
+                          : (rule.filePath.isEmpty
+                                ? Icons.insert_drive_file_outlined
+                                : Icons.folder_outlined),
                       size: 12,
-                      color: rule.filePath.isEmpty
+                      color: !rule.isInline && rule.filePath.isEmpty
                           ? Theme.of(context).colorScheme.error.withAlpha(150)
                           : muted,
                     ),
                     const SizedBox(width: 3),
                     Flexible(
                       child: Text(
-                        rule.filePath.isEmpty
-                            ? 'No file selected'
-                            : rule.filePath,
+                        rule.isInline
+                            ? 'Inline response'
+                            : (rule.filePath.isEmpty
+                                  ? 'No file selected'
+                                  : rule.filePath),
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(fontSize: 10, color: muted),
                       ),

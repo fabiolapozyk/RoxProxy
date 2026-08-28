@@ -135,7 +135,8 @@ class _MainWindowState extends ConsumerState<MainWindow> {
   static String _ruleKey(MapLocalRule r) =>
       '${r.id}:${r.isEnabled}:${r.hostPattern}:${r.pathPattern}:'
       '${r.httpMethod}:${r.filePath}:${r.statusCode}:${r.contentType}:'
-      '${r.isCaseSensitive}:${r.useRegex}:${r.customHeaders}';
+      '${r.isCaseSensitive}:${r.useRegex}:${r.customHeaders}:'
+      '${r.responseSource}:${r.inlineBody}';
 
   void _openSettings() {
     showDialog(
