@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -35,6 +37,12 @@ class _MainWindowState extends ConsumerState<MainWindow> {
   List<String>? _lastBreakpointRuleKeys;
   bool? _lastBreakpointEnabled;
   double _listWidth = 630;
+  Timer? _restartTimer;
+
+  /// Coalesces rapid configuration changes into a single proxy restart, so a
+  /// burst of rule edits (e.g. toggling Map Local rules within a couple of
+  /// seconds) cannot trigger overlapping stop/start cycles.
+  static const Duration _restartDebounce = Duration(milliseconds: 400);
 
   @override
   void initState() {
@@ -43,6 +51,25 @@ class _MainWindowState extends ConsumerState<MainWindow> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (ref.read(settingsLoadedProvider)) _maybeAutoStart();
     });
+  }
+
+  @override
+  void dispose() {
+    _restartTimer?.cancel();
+    super.dispose();
+  }
+
+  void _scheduleProxyRestart() {
+    _restartTimer?.cancel();
+    _restartTimer = Timer(_restartDebounce, _performProxyRestart);
+  }
+
+  Future<void> _performProxyRestart() async {
+    if (!mounted) return;
+    // The user may have stopped the proxy while the restart was pending.
+    if (!ref.read(proxyStateProvider).isRunning) return;
+    final settings = ref.read(settingsProvider);
+    await ref.read(proxyStateProvider.notifier).restart(settings);
   }
 
   void _maybeAutoStart() {
@@ -69,8 +96,7 @@ class _MainWindowState extends ConsumerState<MainWindow> {
     if (proxyState.isRunning &&
         _lastDomainRuleIds != null &&
         !listEquals(_lastDomainRuleIds, currentIds)) {
-      final notifier = ref.read(proxyStateProvider.notifier);
-      notifier.stop().then((_) => notifier.start(settings));
+      _scheduleProxyRestart();
     }
 
     _lastDomainRuleIds = currentIds;
@@ -87,9 +113,7 @@ class _MainWindowState extends ConsumerState<MainWindow> {
     if (proxyState.isRunning &&
         _lastMapLocalRuleKeys != null &&
         !listEquals(_lastMapLocalRuleKeys, currentKeys)) {
-      final notifier = ref.read(proxyStateProvider.notifier);
-      final settings = ref.read(settingsProvider);
-      notifier.stop().then((_) => notifier.start(settings));
+      _scheduleProxyRestart();
     }
 
     _lastMapLocalRuleKeys = currentKeys;
@@ -103,8 +127,7 @@ class _MainWindowState extends ConsumerState<MainWindow> {
     if (proxyState.isRunning &&
         _lastBreakpointEnabled != null &&
         _lastBreakpointEnabled != settings.breakpointEnabled) {
-      final notifier = ref.read(proxyStateProvider.notifier);
-      notifier.stop().then((_) => notifier.start(settings));
+      _scheduleProxyRestart();
     }
     _lastBreakpointEnabled = settings.breakpointEnabled;
   }
@@ -120,9 +143,7 @@ class _MainWindowState extends ConsumerState<MainWindow> {
     if (proxyState.isRunning &&
         _lastBreakpointRuleKeys != null &&
         !listEquals(_lastBreakpointRuleKeys, currentKeys)) {
-      final notifier = ref.read(proxyStateProvider.notifier);
-      final settings = ref.read(settingsProvider);
-      notifier.stop().then((_) => notifier.start(settings));
+      _scheduleProxyRestart();
     }
 
     _lastBreakpointRuleKeys = currentKeys;
@@ -288,6 +309,9 @@ class _MainWindowState extends ConsumerState<MainWindow> {
           enabled: proxyState is! ProxyStarting,
           onPressed: () {
             if (proxyState.isRunning) {
+              // Cancel a pending debounced restart so it cannot bring the
+              // proxy back up right after a manual stop.
+              _restartTimer?.cancel();
               ref.read(proxyStateProvider.notifier).stop();
             } else {
               final settings = ref.read(settingsProvider);
@@ -308,11 +332,9 @@ class _MainWindowState extends ConsumerState<MainWindow> {
           onPressed: () {
             final notifier = ref.read(settingsProvider.notifier);
             notifier.setHttpsInterceptionEnabled(!httpsEnabled);
-            // Restart proxy immediately if running so the change takes effect
+            // Restart proxy if running so the change takes effect.
             if (proxyState.isRunning) {
-              final settings = ref.read(settingsProvider);
-              final ctrl = ref.read(proxyStateProvider.notifier);
-              ctrl.stop().then((_) => ctrl.start(settings));
+              _scheduleProxyRestart();
             }
           },
         ),
