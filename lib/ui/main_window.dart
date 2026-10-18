@@ -252,7 +252,11 @@ class _MainWindowState extends ConsumerState<MainWindow> {
                             ref.read(filterTextProvider.notifier).state = v,
                       ),
                       const Divider(height: 1),
-                      const Expanded(child: RequestListView()),
+                      Expanded(
+                        child: RequestListView(
+                          autoScroll: settings.autoScrollRequestList,
+                        ),
+                      ),
                     ],
                   ),
                 ),

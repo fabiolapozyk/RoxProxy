@@ -163,6 +163,13 @@ class _GeneralSettingsState extends ConsumerState<GeneralSettings> {
             ),
           ),
         ),
+        _FormRow(
+          label: 'Auto-scroll request list',
+          child: Switch(
+            value: settings.autoScrollRequestList,
+            onChanged: notifier.setAutoScrollRequestList,
+          ),
+        ),
       ],
     );
   }
