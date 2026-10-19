@@ -117,7 +117,7 @@ class HarExporter {
         'content': {
           'size': contentBytes?.length ?? 0,
           'mimeType': mimetype,
-          if (responseContent != null) ...responseContent,
+          ...?responseContent,
         },
         'redirectURL': _headerValue(headers, 'location') ?? '',
         'headersSize': -1,
