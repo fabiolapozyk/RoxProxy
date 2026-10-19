@@ -10,6 +10,7 @@ class ProxySettings {
   bool setSystemProxy;
   bool httpsInterceptionEnabled;
   bool breakpointEnabled;
+  bool autoScrollRequestList;
 
   ProxySettings({
     this.port = 8080,
@@ -21,6 +22,7 @@ class ProxySettings {
     this.setSystemProxy = false,
     this.httpsInterceptionEnabled = true,
     this.breakpointEnabled = false,
+    this.autoScrollRequestList = true,
   }) : domainRules = domainRules ?? [];
 
   Map<String, dynamic> toJson() => {
@@ -33,6 +35,7 @@ class ProxySettings {
     'setSystemProxy': setSystemProxy,
     'httpsInterceptionEnabled': httpsInterceptionEnabled,
     'breakpointEnabled': breakpointEnabled,
+    'autoScrollRequestList': autoScrollRequestList,
   };
 
   factory ProxySettings.fromJson(Map<String, dynamic> json) => ProxySettings(
@@ -51,6 +54,7 @@ class ProxySettings {
     setSystemProxy: json['setSystemProxy'] as bool? ?? false,
     httpsInterceptionEnabled: json['httpsInterceptionEnabled'] as bool? ?? true,
     breakpointEnabled: json['breakpointEnabled'] as bool? ?? false,
+    autoScrollRequestList: json['autoScrollRequestList'] as bool? ?? true,
   );
 
   ProxySettings copyWith({
@@ -63,6 +67,7 @@ class ProxySettings {
     bool? setSystemProxy,
     bool? httpsInterceptionEnabled,
     bool? breakpointEnabled,
+    bool? autoScrollRequestList,
   }) => ProxySettings(
     port: port ?? this.port,
     domainRules: domainRules ?? this.domainRules,
@@ -75,5 +80,6 @@ class ProxySettings {
     httpsInterceptionEnabled:
         httpsInterceptionEnabled ?? this.httpsInterceptionEnabled,
     breakpointEnabled: breakpointEnabled ?? this.breakpointEnabled,
+    autoScrollRequestList: autoScrollRequestList ?? this.autoScrollRequestList,
   );
 }

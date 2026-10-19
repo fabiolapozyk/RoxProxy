@@ -112,7 +112,12 @@ String _pathForDisplay(CapturedExchange exchange) {
 // MARK: - Root view
 
 class RequestListView extends ConsumerStatefulWidget {
-  const RequestListView({super.key});
+  /// When true, the list scrolls automatically to reveal newly captured
+  /// exchanges while the user is following the bottom of the list (last row
+  /// selected or already scrolled to the bottom).
+  final bool autoScroll;
+
+  const RequestListView({super.key, this.autoScroll = true});
 
   @override
   ConsumerState<RequestListView> createState() => _RequestListViewState();
@@ -120,11 +125,75 @@ class RequestListView extends ConsumerStatefulWidget {
 
 class _RequestListViewState extends ConsumerState<RequestListView> {
   _ColWidths _widths = const _ColWidths();
+  final ScrollController _scrollController = ScrollController();
+  int _lastCount = 0;
+  String? _lastSelectedId;
+  String? _lastLastId;
+  bool _scrollScheduled = false;
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  bool get _isAtBottom {
+    if (!_scrollController.hasClients) return false;
+    final position = _scrollController.position;
+    return (position.maxScrollExtent - position.pixels) <= 4.0;
+  }
+
+  /// Scrolls to the newest row when an exchange is appended and the user was
+  /// following the bottom of the list (last row selected or already at the
+  /// bottom). Does nothing when auto-scroll is disabled.
+  void _maybeAutoScroll(List<CapturedExchange> exchanges, String? selectedId) {
+    final lastId = exchanges.isEmpty ? null : exchanges.last.id;
+    final appended = exchanges.length > _lastCount;
+    // State *before* this frame's append, so the scroll position still refers
+    // to the previous layout.
+    final wasFollowing =
+        (_lastSelectedId != null && _lastSelectedId == _lastLastId) ||
+        _isAtBottom;
+
+    _lastCount = exchanges.length;
+    _lastSelectedId = selectedId;
+    _lastLastId = lastId;
+
+    if (!widget.autoScroll || !appended || !wasFollowing) return;
+
+    if (_scrollScheduled) return;
+    _scrollScheduled = true;
+    _scrollToBottom(0);
+  }
+
+  /// Pins the list to its bottom. The scroll metrics can lag one frame behind a
+  /// content change (the [ListView] recomputes its extent only on the next
+  /// layout), so this retries a few frames until the position is stable.
+  void _scrollToBottom(int attempt) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) {
+        _scrollScheduled = false;
+        return;
+      }
+      final position = _scrollController.position;
+      final maxExtent = position.maxScrollExtent;
+      if (maxExtent > 0 && position.pixels < maxExtent - 0.5) {
+        position.jumpTo(maxExtent);
+      }
+      if (attempt < 4) {
+        WidgetsBinding.instance.scheduleFrame();
+        _scrollToBottom(attempt + 1);
+      } else {
+        _scrollScheduled = false;
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final exchanges = ref.watch(filteredExchangesProvider);
     final selectedId = ref.watch(selectedExchangeIdProvider);
+    _maybeAutoScroll(exchanges, selectedId);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -149,6 +218,7 @@ class _RequestListViewState extends ConsumerState<RequestListView> {
                       ),
                     )
                   : ListView.builder(
+                      controller: _scrollController,
                       itemCount: exchanges.length,
                       itemExtent: 28,
                       itemBuilder: (context, index) {

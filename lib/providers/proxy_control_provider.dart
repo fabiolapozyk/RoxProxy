@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/proxy_state.dart';
@@ -14,9 +15,38 @@ final proxyStateProvider =
 class ProxyStateNotifier extends StateNotifier<ProxyState> {
   final Ref _ref;
 
+  /// Tail of the serialized lifecycle-operation chain (start/stop/restart).
+  Future<void> _operations = Future.value();
+
   ProxyStateNotifier(this._ref) : super(const ProxyStopped());
 
-  Future<void> start(ProxySettings settings) async {
+  /// Runs [task] once every previously enqueued lifecycle operation has
+  /// finished, so rapid stop/start/restart calls (e.g. several rule edits in a
+  /// row) cannot overlap on the method channel.
+  Future<void> _serialize(Future<void> Function() task) {
+    final next = _operations.then<void>((_) => task()).catchError((
+      Object error,
+    ) {
+      // Backstop only: _start/_doStop already surface errors via state.
+      debugPrint('Proxy lifecycle operation failed: $error');
+    });
+    _operations = next;
+    return next;
+  }
+
+  Future<void> start(ProxySettings settings) =>
+      _serialize(() => _start(settings));
+
+  Future<void> stop() => _serialize(_doStop);
+
+  /// Stops (if running) and starts the proxy with [settings], to apply
+  /// configuration changes without a manual stop/start.
+  Future<void> restart(ProxySettings settings) => _serialize(() async {
+    await _doStop();
+    await _start(settings);
+  });
+
+  Future<void> _start(ProxySettings settings) async {
     if (state.isRunning) return;
     state = const ProxyStarting();
     try {
@@ -43,7 +73,7 @@ class ProxyStateNotifier extends StateNotifier<ProxyState> {
     }
   }
 
-  Future<void> stop() async {
+  Future<void> _doStop() async {
     if (!state.isRunning) return;
     try {
       await _ref.read(proxyChannelProvider).stopProxy();

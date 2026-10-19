@@ -6,6 +6,7 @@ import '../components/method_badge.dart';
 import '../components/status_indicator.dart';
 import 'body_tab.dart';
 import 'headers_tab.dart';
+import 'query_params_tab.dart';
 
 class DetailView extends StatefulWidget {
   final CapturedExchange exchange;
@@ -145,13 +146,22 @@ class _RequestPaneState extends State<_RequestPane>
   @override
   bool get wantKeepAlive => true;
 
+  /// GET/HEAD have no meaningful request body: the second tab shows the query
+  /// string parameters instead of a (always empty) Body tab.
+  bool get _isQueryMethod {
+    final method = widget.exchange.method;
+    return method == 'GET' || method == 'HEAD';
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
     return Column(
       children: [
         _SubTabBar(
-          tabs: const ['Headers', 'Body'],
+          tabs: _isQueryMethod
+              ? const ['Headers', 'Query']
+              : const ['Headers', 'Body'],
           selected: _tab,
           onTap: (i) => setState(() => _tab = i),
         ),
@@ -159,6 +169,8 @@ class _RequestPaneState extends State<_RequestPane>
         Expanded(
           child: _tab == 0
               ? HeadersTab(headers: widget.exchange.requestHeaders)
+              : _isQueryMethod
+              ? QueryParamsTab(url: widget.exchange.url)
               : BodyTab.request(exchange: widget.exchange),
         ),
       ],
