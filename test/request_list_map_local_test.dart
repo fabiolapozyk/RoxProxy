@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rox_proxy/models/captured_exchange.dart';
-import 'package:rox_proxy/providers/exchange_provider.dart';
 import 'package:rox_proxy/providers/map_local_provider.dart';
 import 'package:rox_proxy/services/map_local_service.dart';
 import 'package:rox_proxy/ui/request_list/request_list_view.dart';
@@ -46,13 +45,18 @@ void main() {
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [
-          filteredExchangesProvider.overrideWithValue([completedExchange()]),
-          mapLocalServiceProvider.overrideWithValue(service),
-        ],
-        child: const MaterialApp(
+        overrides: [mapLocalServiceProvider.overrideWithValue(service)],
+        child: MaterialApp(
           home: Scaffold(
-            body: SizedBox(width: 520, height: 900, child: RequestListView()),
+            body: SizedBox(
+              width: 520,
+              height: 900,
+              child: RequestListView(
+                exchanges: [completedExchange()],
+                selectedId: null,
+                onSelect: (_) {},
+              ),
+            ),
           ),
         ),
       ),

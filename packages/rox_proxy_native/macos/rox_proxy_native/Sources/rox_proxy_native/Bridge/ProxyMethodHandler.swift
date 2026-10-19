@@ -51,9 +51,11 @@ final class ProxyMethodHandler: NSObject {
         case "checkCATrust":    checkCATrust(result: result)
         case "getCAStatus":     getCAStatus(result: result)
         case "fetchBody":       fetchBody(call, result: result)
+        case "storeBody":       storeBody(call, result: result)
         case "releaseBody":     releaseBody(call, result: result)
         case "releaseAllBodies": releaseAllBodies(result: result)
         case "decompressBody":  decompressBody(call, result: result)
+        case "getAppVersion":   getAppVersion(result: result)
         case "replayRequest":   replayRequest(call, result: result)
         case "breakpointDecision": breakpointDecision(call, result: result)
         default:
@@ -304,6 +306,20 @@ final class ProxyMethodHandler: NSObject {
         }
     }
 
+    /// Stores a body coming from an imported session into the BodyStore and
+    /// returns its reference, so the imported exchange behaves like a live one
+    /// (issue #13). Returns nil for an empty body.
+    private func storeBody(_ call: FlutterMethodCall, result: FlutterResult) {
+        ProxyLogger.proxy.debug("Storing imported body via Flutter method call")
+        guard let args = call.arguments as? [String: Any],
+              let typedData = args["data"] as? FlutterStandardTypedData else {
+            ProxyLogger.proxy.error("Invalid arguments for storeBody: missing data")
+            result(FlutterError(code: "INVALID_ARGS", message: "Missing data", details: nil))
+            return
+        }
+        result(bodyStore.storeBody(data: typedData.data) as Any?)
+    }
+
     private func releaseBody(_ call: FlutterMethodCall, result: FlutterResult) {
         ProxyLogger.proxy.debug("Releasing body via Flutter method call")
         if let args = call.arguments as? [String: Any],
@@ -317,6 +333,19 @@ final class ProxyMethodHandler: NSObject {
         ProxyLogger.proxy.debug("Releasing all bodies")
         bodyStore.releaseAll()
         result(nil)
+    }
+
+    // MARK: - App info
+
+    /// Bundle version as "X.Y.Z+N", matching the pubspec version, so session
+    /// files can record which build produced them.
+    private func getAppVersion(result: FlutterResult) {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "0.0.0"
+        let build = info?["CFBundleVersion"] as? String
+        let version = build.map { "\(short)+\($0)" } ?? short
+        ProxyLogger.proxy.debug("App version: %{public}@", version)
+        result(version)
     }
 
     // MARK: - Decompression

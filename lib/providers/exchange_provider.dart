@@ -22,14 +22,19 @@ final exchangeListProvider =
 // --- Filtered exchange list (derived) ---
 final filteredExchangesProvider = Provider<List<CapturedExchange>>((ref) {
   final all = ref.watch(exchangeListProvider);
-  final filter = ref.watch(filterTextProvider).toLowerCase().trim();
-  if (filter.isEmpty) return all;
-  return all.where((e) {
-    return e.url.toLowerCase().contains(filter) ||
-        e.host.toLowerCase().contains(filter) ||
-        e.method.toLowerCase().contains(filter);
-  }).toList();
+  final filter = ref.watch(filterTextProvider);
+  if (filter.trim().isEmpty) return all;
+  return all.where((e) => matchesExchangeFilter(e, filter)).toList();
 });
+
+/// Shared filter predicate, used by the live list and by offline sessions.
+bool matchesExchangeFilter(CapturedExchange exchange, String filterText) {
+  final filter = filterText.toLowerCase().trim();
+  if (filter.isEmpty) return true;
+  return exchange.url.toLowerCase().contains(filter) ||
+      exchange.host.toLowerCase().contains(filter) ||
+      exchange.method.toLowerCase().contains(filter);
+}
 
 // --- Selected exchange (derived) ---
 final selectedExchangeProvider = Provider<CapturedExchange?>((ref) {

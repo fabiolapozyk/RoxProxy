@@ -14,12 +14,19 @@ import '../providers/breakpoint_rules_provider.dart';
 import '../providers/exchange_provider.dart';
 import '../providers/map_local_provider.dart';
 import '../providers/proxy_control_provider.dart';
+import '../providers/session_provider.dart';
 import '../providers/settings_provider.dart';
+import '../services/menu_channel.dart';
 import 'breakpoint/breakpoint_dialog.dart';
 import 'breakpoint/response_breakpoint_dialog.dart';
 import 'components/ca_warning_banner.dart';
+import 'components/empty_detail.dart';
+import 'components/filter_bar.dart';
+import 'components/panel_divider.dart';
 import 'components/status_bar.dart';
 import 'detail/detail_view.dart';
+import 'menu_commands.dart';
+import 'offline/offline_session_view.dart';
 import 'request_list/request_list_view.dart';
 import 'settings/settings_view.dart';
 
@@ -47,6 +54,8 @@ class _MainWindowState extends ConsumerState<MainWindow> {
   @override
   void initState() {
     super.initState();
+    // Native macOS "File" menu commands (Open Capture, Export HAR).
+    MenuChannel.setHandler(_onMenuAction);
     // Handle the rare case where settings load completes before the first build.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (ref.read(settingsLoadedProvider)) _maybeAutoStart();
@@ -55,8 +64,18 @@ class _MainWindowState extends ConsumerState<MainWindow> {
 
   @override
   void dispose() {
+    MenuChannel.clearHandler();
     _restartTimer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _onMenuAction(String action) async {
+    if (!mounted) return;
+    if (action == 'openCapture') {
+      await MenuCommands.openCapture(context, ref);
+    } else if (action == 'exportHar') {
+      await MenuCommands.exportHar(context, ref);
+    }
   }
 
   void _scheduleProxyRestart() {
@@ -206,10 +225,12 @@ class _MainWindowState extends ConsumerState<MainWindow> {
     final proxyState = ref.watch(proxyStateProvider);
     final filterText = ref.watch(filterTextProvider);
     final exchanges = ref.watch(exchangeListProvider);
+    final filteredExchanges = ref.watch(filteredExchangesProvider);
     final selectedExchange = ref.watch(selectedExchangeProvider);
     final settings = ref.watch(settingsProvider);
     final mapLocalRules = ref.watch(mapLocalProvider);
     final breakpointRules = ref.watch(breakpointRulesProvider);
+    final offlineSession = ref.watch(offlineSessionProvider);
     final httpsEnabled = settings.httpsInterceptionEnabled;
 
     // Restart proxy if domain rules, Map Local rules, HTTPS interception
@@ -233,54 +254,64 @@ class _MainWindowState extends ConsumerState<MainWindow> {
         proxyState,
         httpsEnabled,
         exchanges.isEmpty,
+        offlineSession != null,
       ),
-      body: Column(
-        children: [
-          CaWarningBanner(onOpenSettings: _openSettings),
-          Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+      body: offlineSession != null
+          ? OfflineSessionView(session: offlineSession)
+          : Column(
               children: [
-                // Sidebar: request list
-                SizedBox(
-                  width: _listWidth,
-                  child: Column(
+                CaWarningBanner(onOpenSettings: _openSettings),
+                Expanded(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _SearchBar(
-                        text: filterText,
-                        onChanged: (v) =>
-                            ref.read(filterTextProvider.notifier).state = v,
-                      ),
-                      const Divider(height: 1),
-                      Expanded(
-                        child: RequestListView(
-                          autoScroll: settings.autoScrollRequestList,
+                      // Sidebar: request list
+                      SizedBox(
+                        width: _listWidth,
+                        child: Column(
+                          children: [
+                            FilterBar(
+                              text: filterText,
+                              onChanged: (v) =>
+                                  ref.read(filterTextProvider.notifier).state =
+                                      v,
+                            ),
+                            const Divider(height: 1),
+                            Expanded(
+                              child: RequestListView(
+                                exchanges: filteredExchanges,
+                                selectedId: selectedExchange?.id,
+                                onSelect: (id) =>
+                                    ref
+                                            .read(
+                                              selectedExchangeIdProvider
+                                                  .notifier,
+                                            )
+                                            .state =
+                                        id,
+                                autoScroll: settings.autoScrollRequestList,
+                              ),
+                            ),
+                          ],
                         ),
+                      ),
+                      PanelDivider(
+                        onDelta: (dx) => setState(() {
+                          _listWidth = (_listWidth + dx).clamp(300.0, 900.0);
+                        }),
+                      ),
+                      // Detail pane
+                      Expanded(
+                        child: selectedExchange != null
+                            ? DetailView(exchange: selectedExchange)
+                            : const EmptyDetail(),
                       ),
                     ],
                   ),
                 ),
-                _PanelDivider(
-                  onDelta: (dx) => setState(() {
-                    _listWidth = (_listWidth + dx).clamp(300.0, 900.0);
-                  }),
-                ),
-                // Detail pane
-                Expanded(
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      return selectedExchange != null
-                          ? DetailView(exchange: selectedExchange)
-                          : const _EmptyDetail();
-                    },
-                  ),
-                ),
+                const StatusBar(),
               ],
             ),
-          ),
-          const StatusBar(),
-        ],
-      ),
     );
   }
 
@@ -289,6 +320,7 @@ class _MainWindowState extends ConsumerState<MainWindow> {
     ProxyState proxyState,
     bool httpsEnabled,
     bool exchangesEmpty,
+    bool offline,
   ) {
     return AppBar(
       toolbarHeight: 44,
@@ -346,8 +378,10 @@ class _MainWindowState extends ConsumerState<MainWindow> {
         // Clear
         _ToolbarButton(
           icon: Icons.delete_outline,
-          label: 'Clear',
-          enabled: !exchangesEmpty,
+          label: offline ? 'Clear (close the offline session first)' : 'Clear',
+          // Clearing releases every live body: not allowed while an offline
+          // session shares the same BodyStore.
+          enabled: !exchangesEmpty && !offline,
           onPressed: () => ref.read(exchangeListProvider.notifier).clear(),
         ),
         const SizedBox(width: 4),
@@ -362,63 +396,6 @@ class _MainWindowState extends ConsumerState<MainWindow> {
       bottom: PreferredSize(
         preferredSize: const Size.fromHeight(0.5),
         child: Divider(height: 0.5, color: Theme.of(context).dividerColor),
-      ),
-    );
-  }
-}
-
-class _SearchBar extends StatefulWidget {
-  final String text;
-  final ValueChanged<String> onChanged;
-
-  const _SearchBar({required this.text, required this.onChanged});
-
-  @override
-  State<_SearchBar> createState() => _SearchBarState();
-}
-
-class _SearchBarState extends State<_SearchBar> {
-  late final TextEditingController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = TextEditingController(text: widget.text);
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 36,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: TextField(
-        controller: _controller,
-        onChanged: widget.onChanged,
-        style: const TextStyle(fontSize: 13),
-        decoration: InputDecoration(
-          hintText: 'Filter requests…',
-          hintStyle: const TextStyle(fontSize: 13),
-          prefixIcon: const Icon(Icons.search, size: 16),
-          suffixIcon: _controller.text.isNotEmpty
-              ? IconButton(
-                  icon: const Icon(Icons.clear, size: 14),
-                  padding: EdgeInsets.zero,
-                  onPressed: () {
-                    _controller.clear();
-                    widget.onChanged('');
-                  },
-                )
-              : null,
-          border: InputBorder.none,
-          contentPadding: EdgeInsets.zero,
-          isDense: true,
-        ),
       ),
     );
   }
@@ -451,70 +428,6 @@ class _ToolbarButton extends StatelessWidget {
         splashRadius: 18,
         padding: const EdgeInsets.all(6),
         constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-      ),
-    );
-  }
-}
-
-// MARK: - Resizable panel divider
-
-class _PanelDivider extends StatefulWidget {
-  final ValueChanged<double> onDelta;
-  const _PanelDivider({required this.onDelta});
-
-  @override
-  State<_PanelDivider> createState() => _PanelDividerState();
-}
-
-class _PanelDividerState extends State<_PanelDivider> {
-  bool _hovering = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.resizeColumn,
-      onEnter: (_) => setState(() => _hovering = true),
-      onExit: (_) => setState(() => _hovering = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onHorizontalDragUpdate: (d) => widget.onDelta(d.delta.dx),
-        child: SizedBox(
-          width: 6,
-          child: Center(
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 120),
-              width: _hovering ? 2 : 1,
-              color: _hovering
-                  ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.7)
-                  : Theme.of(context).dividerColor,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _EmptyDetail extends StatelessWidget {
-  const _EmptyDetail();
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.wifi_tethering,
-            size: 48,
-            color: Colors.grey.withAlpha(100),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Select a request to inspect',
-            style: TextStyle(color: Colors.grey.shade500, fontSize: 14),
-          ),
-        ],
       ),
     );
   }

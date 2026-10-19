@@ -6,7 +6,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rox_proxy/models/captured_exchange.dart';
 import 'package:rox_proxy/providers/breakpoint_rules_provider.dart';
-import 'package:rox_proxy/providers/exchange_provider.dart';
 import 'package:rox_proxy/services/breakpoint_rules_service.dart';
 import 'package:rox_proxy/ui/request_list/request_list_view.dart';
 
@@ -43,13 +42,18 @@ void main() {
   Future<void> pumpList(WidgetTester tester) async {
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [
-          filteredExchangesProvider.overrideWithValue([completedExchange()]),
-          breakpointRulesServiceProvider.overrideWithValue(service),
-        ],
-        child: const MaterialApp(
+        overrides: [breakpointRulesServiceProvider.overrideWithValue(service)],
+        child: MaterialApp(
           home: Scaffold(
-            body: SizedBox(width: 520, height: 900, child: RequestListView()),
+            body: SizedBox(
+              width: 520,
+              height: 900,
+              child: RequestListView(
+                exchanges: [completedExchange()],
+                selectedId: null,
+                onSelect: (_) {},
+              ),
+            ),
           ),
         ),
       ),
@@ -73,13 +77,18 @@ void main() {
     final exchange = completedExchange()..isBreakpoint = true;
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [
-          filteredExchangesProvider.overrideWithValue([exchange]),
-          breakpointRulesServiceProvider.overrideWithValue(service),
-        ],
-        child: const MaterialApp(
+        overrides: [breakpointRulesServiceProvider.overrideWithValue(service)],
+        child: MaterialApp(
           home: Scaffold(
-            body: SizedBox(width: 520, height: 900, child: RequestListView()),
+            body: SizedBox(
+              width: 520,
+              height: 900,
+              child: RequestListView(
+                exchanges: [exchange],
+                selectedId: null,
+                onSelect: (_) {},
+              ),
+            ),
           ),
         ),
       ),
@@ -99,13 +108,18 @@ void main() {
       ..isResponseBreakpoint = true;
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [
-          filteredExchangesProvider.overrideWithValue([exchange]),
-          breakpointRulesServiceProvider.overrideWithValue(service),
-        ],
-        child: const MaterialApp(
+        overrides: [breakpointRulesServiceProvider.overrideWithValue(service)],
+        child: MaterialApp(
           home: Scaffold(
-            body: SizedBox(width: 520, height: 900, child: RequestListView()),
+            body: SizedBox(
+              width: 520,
+              height: 900,
+              child: RequestListView(
+                exchanges: [exchange],
+                selectedId: null,
+                onSelect: (_) {},
+              ),
+            ),
           ),
         ),
       ),

@@ -116,6 +116,20 @@ class ProxyChannel {
     await _method.invokeMethod('releaseAllBodies');
   }
 
+  /// Stores body bytes in the native BodyStore and returns their reference.
+  /// Used when reopening a saved session so the imported bodies are available
+  /// through the same paths as live ones (issue #13).
+  Future<String?> storeBody(Uint8List data) async {
+    return _method.invokeMethod<String>('storeBody', {'data': data});
+  }
+
+  // MARK: - App info
+
+  /// Bundle version ("X.Y.Z+N"), used to stamp saved session files.
+  Future<String?> getAppVersion() async {
+    return _method.invokeMethod<String>('getAppVersion');
+  }
+
   // MARK: - Decompression
 
   Future<Uint8List?> decompressBody(Uint8List data, String encoding) async {

@@ -54,4 +54,28 @@ final class BodyStoreTests: XCTestCase {
         store.releaseAll()
         XCTAssertNil(store.fetch(ref: refs.response!))
     }
+
+    // MARK: - Imported bodies (session reopen, issue #13)
+
+    func testStoreBodyReturnsRefAndIsFetchable() {
+        let store = BodyStore()
+        let ref = store.storeBody(data: Data("imported".utf8))
+
+        XCTAssertNotNil(ref)
+        XCTAssertEqual(store.fetch(ref: ref!), Data("imported".utf8))
+    }
+
+    func testStoreBodyRejectsEmptyData() {
+        let store = BodyStore()
+        XCTAssertNil(store.storeBody(data: Data()))
+    }
+
+    func testImportedBodyIsReleasedWithReleaseAll() {
+        let store = BodyStore()
+        let ref = store.storeBody(data: Data("imported".utf8))!
+
+        // Opening another session / clearing the list must not leak imported bodies.
+        store.releaseAll()
+        XCTAssertNil(store.fetch(ref: ref))
+    }
 }
