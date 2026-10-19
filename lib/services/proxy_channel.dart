@@ -116,6 +116,13 @@ class ProxyChannel {
     await _method.invokeMethod('releaseAllBodies');
   }
 
+  // MARK: - App info
+
+  /// Bundle version ("X.Y.Z+N"), used to stamp saved session files.
+  Future<String?> getAppVersion() async {
+    return _method.invokeMethod<String>('getAppVersion');
+  }
+
   // MARK: - Decompression
 
   Future<Uint8List?> decompressBody(Uint8List data, String encoding) async {

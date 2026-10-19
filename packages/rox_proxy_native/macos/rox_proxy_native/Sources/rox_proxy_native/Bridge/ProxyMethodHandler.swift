@@ -54,6 +54,7 @@ final class ProxyMethodHandler: NSObject {
         case "releaseBody":     releaseBody(call, result: result)
         case "releaseAllBodies": releaseAllBodies(result: result)
         case "decompressBody":  decompressBody(call, result: result)
+        case "getAppVersion":   getAppVersion(result: result)
         case "replayRequest":   replayRequest(call, result: result)
         case "breakpointDecision": breakpointDecision(call, result: result)
         default:
@@ -317,6 +318,19 @@ final class ProxyMethodHandler: NSObject {
         ProxyLogger.proxy.debug("Releasing all bodies")
         bodyStore.releaseAll()
         result(nil)
+    }
+
+    // MARK: - App info
+
+    /// Bundle version as "X.Y.Z+N", matching the pubspec version, so session
+    /// files can record which build produced them.
+    private func getAppVersion(result: FlutterResult) {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "0.0.0"
+        let build = info?["CFBundleVersion"] as? String
+        let version = build.map { "\(short)+\($0)" } ?? short
+        ProxyLogger.proxy.debug("App version: %{public}@", version)
+        result(version)
     }
 
     // MARK: - Decompression
