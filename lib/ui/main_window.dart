@@ -16,6 +16,7 @@ import '../providers/map_local_provider.dart';
 import '../providers/proxy_control_provider.dart';
 import '../providers/session_provider.dart';
 import '../providers/settings_provider.dart';
+import '../services/menu_channel.dart';
 import 'breakpoint/breakpoint_dialog.dart';
 import 'breakpoint/response_breakpoint_dialog.dart';
 import 'components/ca_warning_banner.dart';
@@ -24,6 +25,7 @@ import 'components/filter_bar.dart';
 import 'components/panel_divider.dart';
 import 'components/status_bar.dart';
 import 'detail/detail_view.dart';
+import 'menu_commands.dart';
 import 'offline/offline_session_view.dart';
 import 'request_list/request_list_view.dart';
 import 'settings/settings_view.dart';
@@ -52,6 +54,8 @@ class _MainWindowState extends ConsumerState<MainWindow> {
   @override
   void initState() {
     super.initState();
+    // Native macOS "File" menu commands (Open Capture, Export HAR).
+    MenuChannel.setHandler(_onMenuAction);
     // Handle the rare case where settings load completes before the first build.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (ref.read(settingsLoadedProvider)) _maybeAutoStart();
@@ -60,8 +64,18 @@ class _MainWindowState extends ConsumerState<MainWindow> {
 
   @override
   void dispose() {
+    MenuChannel.clearHandler();
     _restartTimer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _onMenuAction(String action) async {
+    if (!mounted) return;
+    if (action == 'openCapture') {
+      await MenuCommands.openCapture(context, ref);
+    } else if (action == 'exportHar') {
+      await MenuCommands.exportHar(context, ref);
+    }
   }
 
   void _scheduleProxyRestart() {
