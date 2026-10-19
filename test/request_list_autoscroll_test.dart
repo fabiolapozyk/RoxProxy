@@ -2,12 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rox_proxy/models/captured_exchange.dart';
-import 'package:rox_proxy/providers/exchange_provider.dart';
 import 'package:rox_proxy/ui/request_list/request_list_view.dart';
-
-/// Mutable list backing [filteredExchangesProvider] so tests can append
-/// exchanges and observe the auto-scroll behaviour.
-final _testExchanges = StateProvider<List<CapturedExchange>>((ref) => []);
 
 CapturedExchange _exchange(int i) => CapturedExchange(
   id: 'ex-$i',
@@ -31,68 +26,73 @@ List<CapturedExchange> _range(int start, int end) => [
 ];
 
 void main() {
-  Future<ProviderContainer> pumpList(
-    WidgetTester tester, {
-    required bool autoScroll,
-  }) async {
-    final container = ProviderContainer(
-      overrides: [
-        filteredExchangesProvider.overrideWith(
-          (ref) => ref.watch(_testExchanges),
-        ),
-      ],
-    );
-    addTearDown(container.dispose);
+  late ValueNotifier<List<CapturedExchange>> exchanges;
+  late ValueNotifier<String?> selected;
+
+  setUp(() {
+    exchanges = ValueNotifier<List<CapturedExchange>>([]);
+    selected = ValueNotifier<String?>(null);
+  });
+
+  tearDown(() {
+    exchanges.dispose();
+    selected.dispose();
+  });
+
+  Future<void> pumpList(WidgetTester tester, {required bool autoScroll}) async {
     await tester.pumpWidget(
-      UncontrolledProviderScope(
-        container: container,
+      ProviderScope(
         child: MaterialApp(
           home: Scaffold(
             body: SizedBox(
               width: 520,
               height: 200,
-              child: RequestListView(autoScroll: autoScroll),
+              child: ValueListenableBuilder<List<CapturedExchange>>(
+                valueListenable: exchanges,
+                builder: (context, list, _) => ValueListenableBuilder<String?>(
+                  valueListenable: selected,
+                  builder: (context, selectedId, _) => RequestListView(
+                    exchanges: list,
+                    selectedId: selectedId,
+                    onSelect: (id) => selected.value = id,
+                    autoScroll: autoScroll,
+                  ),
+                ),
+              ),
             ),
           ),
         ),
       ),
     );
     await tester.pumpAndSettle();
-    return container;
   }
 
   testWidgets('scrolls to reveal new exchanges when following the bottom', (
     tester,
   ) async {
-    final container = await pumpList(tester, autoScroll: true);
+    await pumpList(tester, autoScroll: true);
 
     final initial = _range(0, 30);
-    container.read(_testExchanges.notifier).state = initial;
+    exchanges.value = initial;
     // Select the last (bottom) row: new arrivals should now be followed.
-    container.read(selectedExchangeIdProvider.notifier).state = initial.last.id;
+    selected.value = initial.last.id;
     await tester.pumpAndSettle();
 
-    container.read(_testExchanges.notifier).state = [
-      ...initial,
-      ..._range(30, 35),
-    ];
+    exchanges.value = [...initial, ..._range(30, 35)];
     await tester.pumpAndSettle();
 
     expect(find.textContaining('q-34'), findsOneWidget);
   });
 
   testWidgets('does not scroll when auto-scroll is disabled', (tester) async {
-    final container = await pumpList(tester, autoScroll: false);
+    await pumpList(tester, autoScroll: false);
 
     final initial = _range(0, 30);
-    container.read(_testExchanges.notifier).state = initial;
-    container.read(selectedExchangeIdProvider.notifier).state = initial.last.id;
+    exchanges.value = initial;
+    selected.value = initial.last.id;
     await tester.pumpAndSettle();
 
-    container.read(_testExchanges.notifier).state = [
-      ...initial,
-      ..._range(30, 35),
-    ];
+    exchanges.value = [...initial, ..._range(30, 35)];
     await tester.pumpAndSettle();
 
     expect(find.textContaining('q-34'), findsNothing);
@@ -101,19 +101,15 @@ void main() {
   testWidgets('does not scroll when the user is not following the bottom', (
     tester,
   ) async {
-    final container = await pumpList(tester, autoScroll: true);
+    await pumpList(tester, autoScroll: true);
 
     final initial = _range(0, 30);
-    container.read(_testExchanges.notifier).state = initial;
+    exchanges.value = initial;
     // Select the first row, so the user is looking at older traffic.
-    container.read(selectedExchangeIdProvider.notifier).state =
-        initial.first.id;
+    selected.value = initial.first.id;
     await tester.pumpAndSettle();
 
-    container.read(_testExchanges.notifier).state = [
-      ...initial,
-      ..._range(30, 35),
-    ];
+    exchanges.value = [...initial, ..._range(30, 35)];
     await tester.pumpAndSettle();
 
     expect(find.textContaining('q-34'), findsNothing);

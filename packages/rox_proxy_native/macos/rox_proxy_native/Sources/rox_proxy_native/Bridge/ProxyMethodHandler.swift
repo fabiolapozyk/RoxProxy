@@ -51,6 +51,7 @@ final class ProxyMethodHandler: NSObject {
         case "checkCATrust":    checkCATrust(result: result)
         case "getCAStatus":     getCAStatus(result: result)
         case "fetchBody":       fetchBody(call, result: result)
+        case "storeBody":       storeBody(call, result: result)
         case "releaseBody":     releaseBody(call, result: result)
         case "releaseAllBodies": releaseAllBodies(result: result)
         case "decompressBody":  decompressBody(call, result: result)
@@ -303,6 +304,20 @@ final class ProxyMethodHandler: NSObject {
             ProxyLogger.proxy.error("Body not found for ref: %{public}@", ref)
             result(nil)
         }
+    }
+
+    /// Stores a body coming from an imported session into the BodyStore and
+    /// returns its reference, so the imported exchange behaves like a live one
+    /// (issue #13). Returns nil for an empty body.
+    private func storeBody(_ call: FlutterMethodCall, result: FlutterResult) {
+        ProxyLogger.proxy.debug("Storing imported body via Flutter method call")
+        guard let args = call.arguments as? [String: Any],
+              let typedData = args["data"] as? FlutterStandardTypedData else {
+            ProxyLogger.proxy.error("Invalid arguments for storeBody: missing data")
+            result(FlutterError(code: "INVALID_ARGS", message: "Missing data", details: nil))
+            return
+        }
+        result(bodyStore.storeBody(data: typedData.data) as Any?)
     }
 
     private func releaseBody(_ call: FlutterMethodCall, result: FlutterResult) {

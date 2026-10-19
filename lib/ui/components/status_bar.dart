@@ -6,14 +6,33 @@ import '../../providers/exchange_provider.dart';
 import '../../providers/proxy_control_provider.dart';
 
 class StatusBar extends ConsumerWidget {
-  const StatusBar({super.key});
+  /// When provided, these override the live providers (used by offline views).
+  final int? total;
+  final int? filtered;
+  final String? filterText;
+
+  /// Optional source label appended to the counts (e.g. "offline").
+  final String? sourceLabel;
+
+  const StatusBar({
+    super.key,
+    this.total,
+    this.filtered,
+    this.filterText,
+    this.sourceLabel,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final proxyState = ref.watch(proxyStateProvider);
-    final total = ref.watch(exchangeListProvider).length;
-    final filtered = ref.watch(filteredExchangesProvider).length;
-    final filterText = ref.watch(filterTextProvider);
+    final totalCount = total ?? ref.watch(exchangeListProvider).length;
+    final filteredCount =
+        filtered ?? ref.watch(filteredExchangesProvider).length;
+    final String activeFilter = filterText ?? ref.watch(filterTextProvider);
+
+    final counts = activeFilter.isNotEmpty
+        ? '$filteredCount of $totalCount requests'
+        : '$totalCount requests';
 
     return Container(
       height: 28,
@@ -29,9 +48,7 @@ class StatusBar extends ConsumerWidget {
           _StateIndicator(proxyState),
           const Spacer(),
           Text(
-            filterText.isNotEmpty
-                ? '$filtered of $total requests'
-                : '$total requests',
+            sourceLabel == null ? counts : '$counts · $sourceLabel',
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),

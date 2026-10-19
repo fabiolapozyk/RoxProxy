@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rox_proxy/models/captured_exchange.dart';
-import 'package:rox_proxy/providers/exchange_provider.dart';
 import 'package:rox_proxy/ui/request_list/request_list_view.dart';
 
 CapturedExchange exchangeWithPath(String path) => CapturedExchange(
@@ -29,12 +28,17 @@ Future<void> pumpList(
 }) async {
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [
-        filteredExchangesProvider.overrideWithValue([exchange]),
-      ],
       child: MaterialApp(
         home: Scaffold(
-          body: SizedBox(width: width, height: 900, child: RequestListView()),
+          body: SizedBox(
+            width: width,
+            height: 900,
+            child: RequestListView(
+              exchanges: [exchange],
+              selectedId: null,
+              onSelect: (_) {},
+            ),
+          ),
         ),
       ),
     ),

@@ -19,6 +19,19 @@ final class BodyStore: @unchecked Sendable {
         return (request: reqRef, response: resRef)
     }
 
+    /// Stores an externally provided body (e.g. a body imported from a saved
+    /// session) and returns its reference UUID, or nil when empty.
+    ///
+    /// Imported bodies live in the same store as live ones, so every consumer
+    /// (body viewer, copy as cURL/response, replay) keeps working unchanged.
+    func storeBody(data: Data) -> String? {
+        guard !data.isEmpty else { return nil }
+        let ref = UUID().uuidString
+        lock.withLock { store[ref] = data }
+        ProxyLogger.http.debug("BodyStore: storing imported body %d bytes with ref %{public}@", data.count, ref)
+        return ref
+    }
+
     /// Stores a single body Data and returns its reference UUID, or nil if empty.
     private func storeBodyContent(_ content: BodyContent?) -> String? {
         guard let content, let data = content.data, !data.isEmpty else { return nil }

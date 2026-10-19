@@ -9,7 +9,6 @@ import '../../models/breakpoint_rule.dart';
 import '../../models/map_local_rule.dart';
 import '../../models/replay_request.dart';
 import '../../providers/breakpoint_rules_provider.dart';
-import '../../providers/exchange_provider.dart';
 import '../../providers/map_local_provider.dart';
 import '../../providers/proxy_channel_provider.dart';
 import '../../providers/settings_provider.dart';
@@ -111,19 +110,37 @@ String _pathForDisplay(CapturedExchange exchange) {
 
 // MARK: - Root view
 
-class RequestListView extends ConsumerStatefulWidget {
+class RequestListView extends StatefulWidget {
+  /// Exchanges to render, already filtered by the caller. Passing the list in
+  /// (instead of reading a provider) lets the same widget render both the live
+  /// capture and an offline session opened from a file.
+  final List<CapturedExchange> exchanges;
+  final String? selectedId;
+  final ValueChanged<String> onSelect;
+
+  /// When true, the list is read-only: mutating context-menu actions (replay,
+  /// map local, breakpoint, intercept) are hidden. Used by offline sessions.
+  final bool readOnly;
+
   /// When true, the list scrolls automatically to reveal newly captured
   /// exchanges while the user is following the bottom of the list (last row
   /// selected or already scrolled to the bottom).
   final bool autoScroll;
 
-  const RequestListView({super.key, this.autoScroll = true});
+  const RequestListView({
+    super.key,
+    required this.exchanges,
+    required this.selectedId,
+    required this.onSelect,
+    this.autoScroll = true,
+    this.readOnly = false,
+  });
 
   @override
-  ConsumerState<RequestListView> createState() => _RequestListViewState();
+  State<RequestListView> createState() => _RequestListViewState();
 }
 
-class _RequestListViewState extends ConsumerState<RequestListView> {
+class _RequestListViewState extends State<RequestListView> {
   _ColWidths _widths = const _ColWidths();
   final ScrollController _scrollController = ScrollController();
   int _lastCount = 0;
@@ -191,8 +208,8 @@ class _RequestListViewState extends ConsumerState<RequestListView> {
 
   @override
   Widget build(BuildContext context) {
-    final exchanges = ref.watch(filteredExchangesProvider);
-    final selectedId = ref.watch(selectedExchangeIdProvider);
+    final exchanges = widget.exchanges;
+    final selectedId = widget.selectedId;
     _maybeAutoScroll(exchanges, selectedId);
 
     return LayoutBuilder(
@@ -228,11 +245,8 @@ class _RequestListViewState extends ConsumerState<RequestListView> {
                           exchange: exchange,
                           isSelected: isSelected,
                           widths: _widths,
-                          onTap: () =>
-                              ref
-                                      .read(selectedExchangeIdProvider.notifier)
-                                      .state =
-                                  exchange.id,
+                          readOnly: widget.readOnly,
+                          onTap: () => widget.onSelect(exchange.id),
                         );
                       },
                     ),
@@ -374,12 +388,14 @@ class _ResizeHandleState extends State<_ResizeHandle> {
 class _ExchangeRow extends ConsumerWidget {
   final CapturedExchange exchange;
   final bool isSelected;
+  final bool readOnly;
   final VoidCallback onTap;
   final _ColWidths widths;
 
   const _ExchangeRow({
     required this.exchange,
     required this.isSelected,
+    required this.readOnly,
     required this.onTap,
     required this.widths,
   });
@@ -560,7 +576,10 @@ class _ExchangeRow extends ConsumerWidget {
     WidgetRef ref,
     Offset globalPosition,
   ) async {
-    if (!_canCopyCurl && !_canCopyUrl && !_canCopyResponse && !_canAddDomain) {
+    if (!_canCopyCurl &&
+        !_canCopyUrl &&
+        !_canCopyResponse &&
+        (readOnly || !_canAddDomain)) {
       return;
     }
 
@@ -592,7 +611,7 @@ class _ExchangeRow extends ConsumerWidget {
             value: 'response',
             child: Text('Copy response', style: TextStyle(fontSize: 13)),
           ),
-        if (_canAddDomain && !alreadyIntercepted)
+        if (!readOnly && _canAddDomain && !alreadyIntercepted)
           PopupMenuItem<String>(
             value: 'add_domain',
             child: Text(
@@ -600,7 +619,7 @@ class _ExchangeRow extends ConsumerWidget {
               style: const TextStyle(fontSize: 13),
             ),
           ),
-        if (_canAddDomain && alreadyIntercepted)
+        if (!readOnly && _canAddDomain && alreadyIntercepted)
           PopupMenuItem<String>(
             enabled: false,
             value: 'add_domain_disabled',
@@ -609,12 +628,12 @@ class _ExchangeRow extends ConsumerWidget {
               style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
             ),
           ),
-        if (_canReplay)
+        if (!readOnly && _canReplay)
           const PopupMenuItem<String>(
             value: 'replay',
             child: Text('Edit and Replay', style: TextStyle(fontSize: 13)),
           ),
-        if (_canMapLocal)
+        if (!readOnly && _canMapLocal)
           const PopupMenuItem<String>(
             value: 'map_local',
             child: Text(
@@ -622,7 +641,7 @@ class _ExchangeRow extends ConsumerWidget {
               style: TextStyle(fontSize: 13),
             ),
           ),
-        if (_canBreakpoint)
+        if (!readOnly && _canBreakpoint)
           const PopupMenuItem<String>(
             value: 'breakpoint',
             child: Text(
@@ -729,7 +748,10 @@ class _ExchangeRow extends ConsumerWidget {
     return GestureDetector(
       onTap: onTap,
       onSecondaryTapDown:
-          (_canCopyCurl || _canCopyUrl || _canCopyResponse || _canAddDomain)
+          (_canCopyCurl ||
+              _canCopyUrl ||
+              _canCopyResponse ||
+              (!readOnly && _canAddDomain))
           ? (d) => _showContextMenu(context, ref, d.globalPosition)
           : null,
       child: Container(
