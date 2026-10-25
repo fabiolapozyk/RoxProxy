@@ -52,8 +52,9 @@ packages/rox_proxy_native/
   macos/rox_proxy_native/Sources/rox_proxy_native/
     Proxy/                    # SwiftNIO: HTTPProxyHandler, MITMHandler, TunnelHandler, ProxyServer
     Certificate/              # CertificateAuthority, DomainCertificateCache, KeychainInstaller
-    Bridge/                   # Channel bridge Flutter <-> Swift (BridgeSessionStore, ExchangeSerializer)
-    Models/                   # CapturedExchange, DomainRule, ProxySettings, MapLocalRule
+    Bridge/                   # Channel bridge Flutter <-> Swift (BridgeSessionStore, ExchangeSerializer,
+                              # ProxyConfigStore, ProxyConfigParser)
+    Models/                   # CapturedExchange, DomainRule, ProxySettings, MapLocalRule, ProxyConfig
     MapLocal/                 # MapLocalMatcher, MapLocalHandler
     SystemProxy/              # SystemProxyManager, CrashGuard
     Utilities/                # ProxyLogger (os_log, subsystem "com.roxproxy"), ProxyMetrics, GzipDecompressor
@@ -74,5 +75,13 @@ test/                         # Unit test Dart
 - CrashGuard usa il sentinel `~/Library/Application Support/RoxProxy/.proxy-active`:
   se presente dopo un clean exit, il path di shutdown è rotto (lo verifica `smoke.sh`).
 - Endpoint interni del proxy: `GET /health` e `GET /stats` (porta del proxy).
+- **Hot reload obbligatorio per le regole**: modifiche a domain rules, Map Local,
+  breakpoint e HTTPS interception passano da `updateProxyConfig` e **non** devono
+  chiamare `stopProxy`/`startProxy`. Il server non va fermato: chiuderebbe le
+  connessioni long-lived (inclusa una VPN SSL instradata dal proxy).
+  - `ProxyConfig` è immutabile; `ProxyConfigStore` fa swap atomico con versione
+    monotona. Gli handler leggono `store.current()` a `.head` e tengono lo
+    snapshot per l'intero exchange.
+  - Restart-only: porta e connection timeout.
 - Regole Map Local e settings in `~/Library/Application Support/RoxProxy/` (JSON).
 - `scripts/release_script.sh` è gitignored (release manuali); `verify.sh`/`smoke.sh` sono versionati.

@@ -49,7 +49,6 @@ log stream --predicate 'subsystem == "com.roxproxy"'
 
 **Project Layout:**
 
-**Project Layout:**
 ```
 lib/                          # Flutter UI + State (Riverpod)
   utils/
@@ -62,20 +61,21 @@ lib/                          # Flutter UI + State (Riverpod)
 
 packages/rox_proxy_native/    # Swift Plugin
   Sources/rox_proxy_native/
-    Bridge/                   # Flutter ↔ Swift communication
+    Bridge/                   # Flutter ↔ Swift communication, ProxyConfigStore/Parser
     Proxy/                    # SwiftNIO handlers (HTTP, HTTPS, Tunnel, MITM)
     Certificate/              # CA generation, domain certs, Keychain
     SystemProxy/              # networksetup, crash recovery
-    Models/                   # Swift-side data models
+    Models/                   # Swift-side data models, ProxyConfig
     Utilities/                # ProxyLogger (os_log), GzipDecompressor
 ```
 
 ## 📡 Platform Channels
 
-| Channel | Direction | Methods |
-|---------|-----------|---------|
-| `com.roxproxy/control` | Flutter → Swift | `startProxy`, `stopProxy`, `getProxyState`, `installCACertificate`, `checkCATrust`, `getCAStatus`, `fetchBody`, `releaseBody`, `releaseAllBodies`, `decompressBody` |
+| Channel | Direction | Messages |
+|---------|-----------|----------|
+| `com.roxproxy/control` | Flutter → Swift | `startProxy`, `updateProxyConfig`, `stopProxy`, `getProxyState`, `configureSystemProxy`, `installCACertificate`, `checkCATrust`, `getCAStatus`, `fetchBody`, `storeBody`, `releaseBody`, `releaseAllBodies`, `decompressBody`, `getAppVersion`, `replayRequest`, `breakpointDecision` |
 | `com.roxproxy/exchanges` | Swift → Flutter | Stream events: `{type: "new"|"update", exchange: {...}}` |
+| `com.roxproxy/breakpointEvents` | Swift → Flutter | Stream events: `{type: "request"|"response"|"resolved"}` |
 
 ## 🔧 Request Flow (Swift)
 
@@ -84,6 +84,27 @@ packages/rox_proxy_native/    # Swift Plugin
 3. **CONNECT** - Tunnel blind o MITM interception (se dominio in regole)
 4. **MITMHandler** - TLS decryption con certificato forgiato
 5. **BridgeSessionStore** - Riceve callbacks da thread NIO, invia eventi a Flutter
+
+## 🔄 Configuration Hot Reload
+
+Le modifiche a regole non fermano e riavviano più il proxy:
+
+- `ProxyConfig` è uno snapshot immutabile; `ProxyConfigStore` lo sostituisce
+  atomicamente e assegna una versione monotona.
+- `HTTPProxyHandler`/`MITMHandler` leggono `configStore.current()` a `.head` e
+  tengono lo snapshot per tutto l'exchange (request + response).
+- Le nuove richieste usano la config aggiornata; quelle in-flight e i tunnel già
+  aperti mantengono la versione con cui sono partiti.
+- La decisione `CONNECT`/MITM è sticky per la connessione.
+- Hot: domain rules, Map Local, breakpoint toggle/rules, HTTPS interception
+  (nuovi CONNECT). Restart-only: porta e connection timeout.
+- `updateProxyConfig` è strict (rifiuta tutto il payload se una regola è
+  invalida); `startProxy` è leniente.
+- Disabilitare i breakpoint rilascia le richieste sospese ed emette `resolved`.
+- I contatori `/stats` non vengono azzerati dagli update.
+
+Non reintrodurre `stopProxy`/`startProxy` sulle modifiche di regole: chiuderebbe
+le connessioni long-lived, inclusa una VPN instradata dal proxy.
 
 ## 📦 Body Transfer
 

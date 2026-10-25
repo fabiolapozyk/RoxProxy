@@ -72,7 +72,8 @@ packages/rox_proxy_native/macos/CoreTests/
     ├── ExchangeStreamHandlerStub.swift         # Stub del handler Flutter-only
     ├── MapLocalTests.swift                     # Test MapLocalMatcher/Handler
     ├── DomainRuleTests.swift                   # Matching wildcard/exact
-    ├── ProxyServerTests.swift                  # Lifecycle, bind, /health, /stats
+    ├── ProxyConfigTests.swift                  # Store atomico, parser strict/lenient, snapshot
+    ├── ProxyServerTests.swift                  # Lifecycle, bind, /health, /stats, hot reload
     ├── GzipDecompressorTests.swift             # gzip/zlib/deflate round-trip
     ├── BodyStoreTests.swift                    # Store/fetch/release corpi
     └── ExchangeSerializerTests.swift           # Serializzazione exchange
@@ -190,7 +191,46 @@ func testServerFailsToStartOnOccupiedPort() async throws {
 }
 ```
 
-### 4. Test con MITM
+### 4. Testare l'hot reload
+
+Il contratto è: **la configurazione vale per le nuove richieste, non per quelle
+già in corso**. Un test di regressione deve verificare che il server resti in
+ascolto e applichi la nuova config senza `stop()`/`start()`.
+
+```swift
+@MainActor
+func testHotReloadAppliesToNewRequestsWithoutRestart() async throws {
+    let port = nextPort()
+    let configStore = ProxyConfigStore(initial: makeConfig([ruleBefore]))
+    let server = ProxyServer(port: port, store: makeStore(), configStore: configStore)
+    try await server.start()
+
+    // 1. Richiesta con la vecchia regola
+    let first = try await requestTo(port: port, request: ".../before...")
+    XCTAssertTrue(first.contains("old-body"))
+
+    // 2. Swap atomico: nessun restart
+    _ = configStore.apply(makeConfig([ruleAfter]))
+
+    // 3. La nuova richiesta usa la nuova regola
+    let second = try await requestTo(port: port, request: ".../after...")
+    XCTAssertTrue(second.contains("new-body"))
+
+    await server.stop()
+}
+```
+
+Punti da coprire:
+- `ProxyConfigStore`: swap atomico, version monotona, snapshot immutabile dopo
+  un `apply`, letture concorrenti senza stato "torn".
+- `ProxyConfigParser`: payload valido, liste vuote, regola invalida, regex
+  invalida.
+- `BreakpointHandler`: `releaseAll()` notifica `released` e un handler
+  disabilitato rifiuta nuove sospensioni.
+- `OutboundHTTPHandler`: usa il `breakpointMatcher` dello snapshot
+  dell'exchange, non quello corrente.
+
+### 5. Test con MITM
 
 **Setup richiesto**: CA installato nel Keychain di test; i test MITM completi
 sono coperti dagli E2E in `integration_test/proxy_mitm_test.dart`

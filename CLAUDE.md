@@ -49,13 +49,14 @@ lib/                         # Flutter/Dart app
 packages/rox_proxy_native/   # Local Flutter plugin (Swift)
   macos/rox_proxy_native/
     Sources/rox_proxy_native/
-      Bridge/                # NEW: RoxProxyNativePlugin, ProxyMethodHandler,
-                             #      ExchangeStreamHandler, BridgeSessionStore,
-                             #      BodyStore, ExchangeSerializer
+      Bridge/                # RoxProxyNativePlugin, ProxyMethodHandler,
+                             # ExchangeStreamHandler, BridgeSessionStore,
+                             # BodyStore, ExchangeSerializer,
+                             # ProxyConfigStore, ProxyConfigParser
       Proxy/                 # SwiftNIO handlers (HTTPProxyHandler, MITMHandler, etc.)
       Certificate/           # CertificateAuthority, DomainCertificateCache, KeychainInstaller
       SystemProxy/           # SystemProxyManager, CrashGuard
-      Models/                # CapturedExchange, DomainRule, ProxySettings (Swift side)
+      Models/                # CapturedExchange, DomainRule, ProxySettings, ProxyConfig
       Utilities/             # GzipDecompressor
   macos/CoreTests/           # Package SPM standalone: test del core Swift puro
                              # (symlink dei sorgenti; NON si può testare via swift test
@@ -64,8 +65,9 @@ packages/rox_proxy_native/   # Local Flutter plugin (Swift)
 
 ### Platform channels
 
-- **MethodChannel** `com.roxproxy/control` — Flutter → Swift: `startProxy`, `stopProxy`, `getProxyState`, `installCACertificate`, `checkCATrust`, `getCAStatus`, `fetchBody`, `releaseBody`, `releaseAllBodies`, `decompressBody`
+- **MethodChannel** `com.roxproxy/control` — Flutter → Swift: `startProxy`, `updateProxyConfig`, `stopProxy`, `getProxyState`, `configureSystemProxy`, `installCACertificate`, `checkCATrust`, `getCAStatus`, `fetchBody`, `storeBody`, `releaseBody`, `releaseAllBodies`, `decompressBody`, `getAppVersion`, `replayRequest`, `breakpointDecision`
 - **EventChannel** `com.roxproxy/exchanges` — Swift → Flutter: streams `{type: "new"|"update", exchange: {...}}` maps
+- **EventChannel** `com.roxproxy/breakpointEvents` — Swift → Flutter: streams `{type: "request"|"response"|"resolved"}` events
 
 ### Request flow (Swift side)
 
@@ -73,6 +75,28 @@ packages/rox_proxy_native/   # Local Flutter plugin (Swift)
 2. **`HTTPProxyHandler`** — plain HTTP: forwards via `OutboundHTTPHandler`; `CONNECT`: tunnels blindly (`TunnelHandler`) or MITM-intercepts if host matches a `DomainRule`.
 3. **MITM path** — `CertificateAuthority` issues a forged leaf cert → `NIOSSLServerHandler` → `MITMSetupHandler` → `MITMHandler` makes upstream TLS connection and captures the exchange.
 4. **`BridgeSessionStore`** (replaces the old `ProxySessionStore`) — receives NIO thread callbacks via `Task { @MainActor in ... }` and pushes serialized events to the Flutter EventChannel via `ExchangeStreamHandler`.
+
+### Configuration hot reload
+
+Rule edits must **never** stop/restart the proxy. The config is an immutable
+`ProxyConfig` snapshot held by `ProxyConfigStore`:
+
+- `HTTPProxyHandler`/`MITMHandler` read `configStore.current()` at `.head` and
+  keep the snapshot in the state machine for the whole exchange; pass it to
+  `OutboundHTTPHandler` for response breakpoints.
+- New requests use the latest snapshot; in-flight requests and already-open
+  tunnels keep the snapshot they started with.
+- `CONNECT`/MITM is decided once per connection and is sticky.
+- Hot-swappable: domain rules, Map Local, breakpoint toggle/rules, HTTPS
+  interception (new CONNECTs). Restart-only: port, connection timeout.
+- `ProxyMethodHandler.updateProxyConfig` is strict (rejects the whole payload on
+  invalid rules); `startProxy` is lenient.
+- Disabling breakpoints calls `releaseAll()`, which releases suspended requests
+  and emits a `resolved` event to close the dialogs.
+- `/stats` counters are not reset on config updates.
+
+Reintroducing `stopProxy`/`startProxy` on rule changes would close long-lived
+connections (including an SSL-VPN tunnel routed through the proxy).
 
 ### Body transfer pattern
 

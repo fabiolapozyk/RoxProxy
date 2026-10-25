@@ -13,6 +13,7 @@ A macOS 14+ desktop HTTP/HTTPS proxy inspector. Built with Flutter (UI) and Swif
 - Body viewer with gzip/deflate decompression
 - Request/response **breakpoints**: pause traffic matching a rule, inspect and edit before it continues
 - **Map Local**: serve local content in place of remote responses, per URL pattern
+- **Hot configuration reload**: add, edit or toggle domain rules, Map Local rules and breakpoints without restarting the proxy or dropping active connections
 - **Replay**: re-send a captured request, optionally edited, and inspect the new response
 - CA certificate installer for macOS System Keychain
 - Certificate download endpoint for mobile/LAN devices (`http://cert.roxproxy/`)
@@ -22,6 +23,8 @@ A macOS 14+ desktop HTTP/HTTPS proxy inspector. Built with Flutter (UI) and Swif
 ## Known Limitations
 
 - **Brotli compression**: Responses compressed with Brotli (`br`) are not supported and will display an error message. Use gzip or deflate compression instead.
+- **Hot reload applies to new requests**: requests already in flight and open tunnels keep the configuration they started with. A new Map Local or domain rule for a host that is already in a blind tunnel applies only after the client reconnects.
+- **Port and connection timeout are restart-only**: changing them still requires stopping and starting the proxy, which can interrupt active connections (including a VPN routed through the proxy).
 
 ## Requirements
 
@@ -43,7 +46,7 @@ flutter run -d macos
 flutter build macos
 ```
 
-Prebuilt releases (DMG) are attached to [GitHub Releases](https://github.com/flapozyk/RoxProxy/releases).
+Prebuilt releases (DMG or ZIP) are attached to [GitHub Releases](https://github.com/flapozyk/RoxProxy/releases).
 The app is not notarized yet: see "Security warning on first launch" below.
 
 ## Roadmap
@@ -73,19 +76,48 @@ lib/                         # Flutter/Dart app
 
 packages/rox_proxy_native/   # Swift plugin
   Sources/rox_proxy_native/
-    Bridge/                  # Flutter ↔ Swift bridge
+    Bridge/                  # Flutter ↔ Swift bridge, ProxyConfigStore/Parser
     Proxy/                   # SwiftNIO handlers
     Certificate/             # CA generation, per-domain certs, Keychain installer
     SystemProxy/             # networksetup integration, crash guard
-    Models/                  # Swift-side models
+    Models/                  # Swift-side models, ProxyConfig
 ```
 
 ### Platform channels
 
-| Channel | Direction | Methods |
+| Channel | Direction | Messages |
 |---|---|---|
-| `com.roxproxy/control` | Flutter → Swift | `startProxy`, `stopProxy`, `getProxyState`, `installCACertificate`, `checkCATrust`, `getCAStatus`, `fetchBody`, `releaseBody`, `releaseAllBodies`, `decompressBody` |
-| `com.roxproxy/exchanges` | Swift → Flutter | streams `{type, exchange}` events |
+| `com.roxproxy/control` | Flutter → Swift | `startProxy`, `updateProxyConfig`, `stopProxy`, `getProxyState`, `configureSystemProxy`, `installCACertificate`, `checkCATrust`, `getCAStatus`, `fetchBody`, `storeBody`, `releaseBody`, `releaseAllBodies`, `decompressBody`, `getAppVersion`, `replayRequest`, `breakpointDecision` |
+| `com.roxproxy/exchanges` | Swift → Flutter | streams `{type: "new" \| "update", exchange}` events |
+| `com.roxproxy/breakpointEvents` | Swift → Flutter | streams `{type: "request" \| "response" \| "resolved"}` events |
+
+### Configuration lifecycle (hot reload)
+
+Rule changes do **not** stop and restart the proxy anymore. The configuration is
+an immutable `ProxyConfig` snapshot held by a thread-safe `ProxyConfigStore`:
+
+- a snapshot is taken at the start of every request (`.head`) and reused for the
+  whole exchange (request + response);
+- **new requests** use the latest snapshot;
+- **in-flight requests and already-open tunnels** keep the snapshot they started
+  with;
+- the `CONNECT`/MITM decision is sticky for the connection: adding a Map Local
+  or domain rule for a host that is already in a blind tunnel applies only after
+  the client reconnects (and removing a rule does not de-MITM an existing
+  connection);
+- disabling breakpoints releases already-suspended requests and closes their
+  dialogs;
+- hot-swappable: domain rules, Map Local rules, breakpoint toggle/rules and
+  HTTPS interception (for new `CONNECT`s);
+- restart-only: proxy port and connection timeout;
+- `/stats` counters are not reset by configuration updates.
+
+`updateProxyConfig` is strict: if any rule is invalid, the whole update is
+rejected and the running configuration is left untouched. `startProxy` remains
+lenient so that a stale invalid rule saved on disk does not prevent startup.
+
+This is what keeps long-lived connections (including an SSL-VPN tunnel routed
+through RoxProxy) alive while you edit rules.
 
 ## Inspecting traffic from mobile / LAN devices
 
@@ -167,6 +199,7 @@ cd packages/rox_proxy_native/macos/CoreTests && swift test
 - DNS failure, connection reset, non-routable IP handling
 - Pipelining rejection (HTTP/1.1)
 - Breakpoints, Map Local, replay
+- Hot configuration reload: atomic store, strict/lenient parsing, per-request snapshot, update without restart
 - System proxy configuration (macOS networksetup)
 - Crash recovery (sentinel file, signal handlers)
 
