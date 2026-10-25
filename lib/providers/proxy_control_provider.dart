@@ -46,6 +46,38 @@ class ProxyStateNotifier extends StateNotifier<ProxyState> {
     await _start(settings);
   });
 
+  /// Applies [settings] to the running proxy without stopping it.
+  ///
+  /// The new configuration is used by the next request; in-flight requests and
+  /// existing tunnels keep the snapshot they started with. No-op when the
+  /// proxy is stopped (the next start sends the full configuration anyway).
+  Future<void> updateConfig(ProxySettings settings) =>
+      _serialize(() => _updateConfig(settings));
+
+  Future<void> _updateConfig(ProxySettings settings) async {
+    if (!state.isRunning) return;
+    try {
+      // Read the rules at execution time, not at schedule time.
+      await _ref.read(mapLocalProvider.notifier).ensureLoaded();
+      await _ref.read(breakpointRulesProvider.notifier).ensureLoaded();
+      final mapLocalRules = _ref.read(mapLocalProvider);
+      final breakpointRules = _ref.read(breakpointRulesProvider);
+      await _ref
+          .read(proxyChannelProvider)
+          .updateProxyConfig(
+            domainRules: settings.domainRules,
+            mapLocalRules: mapLocalRules,
+            httpsInterceptionEnabled: settings.httpsInterceptionEnabled,
+            breakpointEnabled: settings.breakpointEnabled,
+            breakpointRules: breakpointRules,
+          );
+    } catch (e) {
+      // Keep running with the previous configuration rather than flipping the
+      // UI to an error state.
+      debugPrint('Proxy config update failed: $e');
+    }
+  }
+
   Future<void> _start(ProxySettings settings) async {
     if (state.isRunning) return;
     state = const ProxyStarting();

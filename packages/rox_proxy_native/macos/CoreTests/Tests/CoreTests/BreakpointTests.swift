@@ -11,6 +11,7 @@ private final class StubNotifier: BreakpointHandler.Notifier {
     var isAvailable = true
     private(set) var requests: [BreakpointRequest] = []
     private(set) var responses: [ResponseBreakpoint] = []
+    private(set) var released: [String] = []
 
     func requestSuspended(_ request: BreakpointRequest) {
         requests.append(request)
@@ -19,6 +20,15 @@ private final class StubNotifier: BreakpointHandler.Notifier {
     func responseSuspended(_ response: ResponseBreakpoint) {
         responses.append(response)
     }
+
+    func released(breakpointId: String) {
+        released.append(breakpointId)
+    }
+}
+
+/// Test-only live flag for the `isEnabled` closure.
+private final class EnabledFlag: @unchecked Sendable {
+    var value = true
 }
 
 // MARK: - BreakpointRule
@@ -555,7 +565,7 @@ final class BreakpointHandlerTests: XCTestCase {
         let loop = EmbeddedEventLoop()
         defer { loop.shutdownGracefully { _ in } }
         let notifier = StubNotifier()
-        let handler = BreakpointHandler(matcher: BreakpointMatcher(rules: []), notifier: notifier)
+        let handler = BreakpointHandler(notifier: notifier)
 
         var decisions: [BreakpointResponse] = []
         let request = BreakpointRequest(id: "bp-1", exchangeId: "ex-1", method: "GET", url: "https://a.com", headers: [], body: nil, timestamp: Date())
@@ -579,7 +589,7 @@ final class BreakpointHandlerTests: XCTestCase {
         let loop = EmbeddedEventLoop()
         defer { loop.shutdownGracefully { _ in } }
         let notifier = StubNotifier()
-        let handler = BreakpointHandler(matcher: BreakpointMatcher(rules: []), notifier: notifier)
+        let handler = BreakpointHandler(notifier: notifier)
 
         var decisions: [BreakpointResponse] = []
         let request = BreakpointRequest(id: "bp-2", exchangeId: "ex-2", method: "GET", url: "https://a.com", headers: [], body: nil, timestamp: Date())
@@ -598,7 +608,7 @@ final class BreakpointHandlerTests: XCTestCase {
     func testSuspendFailsWithoutNotifier() {
         let loop = EmbeddedEventLoop()
         defer { loop.shutdownGracefully { _ in } }
-        let handler = BreakpointHandler(matcher: BreakpointMatcher(rules: []), notifier: nil)
+        let handler = BreakpointHandler(notifier: nil)
 
         let request = BreakpointRequest(id: "bp-3", exchangeId: "ex-3", method: "GET", url: "https://a.com", headers: [], body: nil, timestamp: Date())
         XCTAssertFalse(handler.suspend(request: request, eventLoop: loop) { _ in })
@@ -610,7 +620,7 @@ final class BreakpointHandlerTests: XCTestCase {
         defer { loop.shutdownGracefully { _ in } }
         let notifier = StubNotifier()
         notifier.isAvailable = false
-        let handler = BreakpointHandler(matcher: BreakpointMatcher(rules: []), notifier: notifier)
+        let handler = BreakpointHandler(notifier: notifier)
 
         let request = BreakpointRequest(id: "bp-4", exchangeId: "ex-4", method: "GET", url: "https://a.com", headers: [], body: nil, timestamp: Date())
         XCTAssertFalse(handler.suspend(request: request, eventLoop: loop) { _ in })
@@ -618,11 +628,43 @@ final class BreakpointHandlerTests: XCTestCase {
         XCTAssertEqual(handler.pendingCount, 0)
     }
 
+    func testReleaseAllNotifiesAndDisabledHandlerRefusesNewSuspensions() {
+        let loop = EmbeddedEventLoop()
+        defer { loop.shutdownGracefully { _ in } }
+        let notifier = StubNotifier()
+        let enabled = EnabledFlag()
+        let handler = BreakpointHandler(
+            notifier: notifier,
+            isEnabled: { enabled.value }
+        )
+
+        let request = BreakpointRequest(
+            id: "bp-release", exchangeId: "ex-release", method: "GET",
+            url: "https://a.com", headers: [], body: nil, timestamp: Date()
+        )
+        XCTAssertTrue(handler.suspend(request: request, eventLoop: loop) { _ in })
+        XCTAssertEqual(handler.pendingCount, 1)
+
+        enabled.value = false
+        handler.releaseAll()
+        loop.run()
+
+        XCTAssertEqual(handler.pendingCount, 0)
+        XCTAssertEqual(notifier.released, ["bp-release"])
+
+        let afterDisable = BreakpointRequest(
+            id: "bp-after-disable", exchangeId: "ex-2", method: "GET",
+            url: "https://a.com", headers: [], body: nil, timestamp: Date()
+        )
+        XCTAssertFalse(handler.suspend(request: afterDisable, eventLoop: loop) { _ in })
+        XCTAssertEqual(handler.pendingCount, 0)
+    }
+
     func testTimeoutAutoProceeds() {
         let loop = EmbeddedEventLoop()
         defer { loop.shutdownGracefully { _ in } }
         let notifier = StubNotifier()
-        let handler = BreakpointHandler(matcher: BreakpointMatcher(rules: []), notifier: notifier)
+        let handler = BreakpointHandler(notifier: notifier)
 
         var decisions: [BreakpointResponse] = []
         let request = BreakpointRequest(id: "bp-5", exchangeId: "ex-5", method: "GET", url: "https://a.com", headers: [], body: nil, timestamp: Date())
@@ -641,7 +683,7 @@ final class BreakpointHandlerTests: XCTestCase {
         let loop = EmbeddedEventLoop()
         defer { loop.shutdownGracefully { _ in } }
         let notifier = StubNotifier()
-        let handler = BreakpointHandler(matcher: BreakpointMatcher(rules: []), notifier: notifier)
+        let handler = BreakpointHandler(notifier: notifier)
 
         var decisions: [BreakpointResponse] = []
         let request = BreakpointRequest(id: "bp-6", exchangeId: "ex-6", method: "GET", url: "https://a.com", headers: [], body: nil, timestamp: Date())
@@ -659,7 +701,7 @@ final class BreakpointHandlerTests: XCTestCase {
     func testResolveUnknownIdIsNoop() {
         let loop = EmbeddedEventLoop()
         defer { loop.shutdownGracefully { _ in } }
-        let handler = BreakpointHandler(matcher: BreakpointMatcher(rules: []), notifier: nil)
+        let handler = BreakpointHandler(notifier: nil)
         handler.resolve(breakpointId: "ghost", response: .autoProceed(breakpointId: "ghost"))
         loop.run()
         XCTAssertEqual(handler.pendingCount, 0)
@@ -669,7 +711,7 @@ final class BreakpointHandlerTests: XCTestCase {
         let loop = EmbeddedEventLoop()
         defer { loop.shutdownGracefully { _ in } }
         let notifier = StubNotifier()
-        let handler = BreakpointHandler(matcher: BreakpointMatcher(rules: []), notifier: notifier)
+        let handler = BreakpointHandler(notifier: notifier)
 
         var decisions: [BreakpointResponse] = []
         let request = BreakpointRequest(id: "bp-7", exchangeId: "ex-7", method: "GET", url: "https://a.com", headers: [], body: nil, timestamp: Date())
@@ -686,7 +728,7 @@ final class BreakpointHandlerTests: XCTestCase {
         let loop = EmbeddedEventLoop()
         defer { loop.shutdownGracefully { _ in } }
         let notifier = StubNotifier()
-        let handler = BreakpointHandler(matcher: BreakpointMatcher(rules: []), notifier: notifier)
+        let handler = BreakpointHandler(notifier: notifier)
 
         var decisions: [BreakpointResponse] = []
         for id in ["a", "b", "c"] {
@@ -726,7 +768,7 @@ final class BreakpointResponseSuspensionTests: XCTestCase {
         let loop = EmbeddedEventLoop()
         defer { loop.shutdownGracefully { _ in } }
         let notifier = StubNotifier()
-        let handler = BreakpointHandler(matcher: BreakpointMatcher(rules: []), notifier: notifier)
+        let handler = BreakpointHandler(notifier: notifier)
 
         var decisions: [BreakpointResponse] = []
         XCTAssertTrue(
@@ -747,7 +789,7 @@ final class BreakpointResponseSuspensionTests: XCTestCase {
         let loop = EmbeddedEventLoop()
         defer { loop.shutdownGracefully { _ in } }
         let notifier = StubNotifier()
-        let handler = BreakpointHandler(matcher: BreakpointMatcher(rules: []), notifier: notifier)
+        let handler = BreakpointHandler(notifier: notifier)
 
         var decisions: [BreakpointResponse] = []
         XCTAssertTrue(
@@ -763,7 +805,7 @@ final class BreakpointResponseSuspensionTests: XCTestCase {
         let loop = EmbeddedEventLoop()
         defer { loop.shutdownGracefully { _ in } }
         let notifier = StubNotifier()
-        let handler = BreakpointHandler(matcher: BreakpointMatcher(rules: []), notifier: notifier)
+        let handler = BreakpointHandler(notifier: notifier)
 
         var decisions: [BreakpointResponse] = []
         XCTAssertTrue(
@@ -779,7 +821,7 @@ final class BreakpointResponseSuspensionTests: XCTestCase {
     func testSuspendResponseFailsWithoutNotifier() {
         let loop = EmbeddedEventLoop()
         defer { loop.shutdownGracefully { _ in } }
-        let handler = BreakpointHandler(matcher: BreakpointMatcher(rules: []), notifier: nil)
+        let handler = BreakpointHandler(notifier: nil)
         XCTAssertFalse(
             handler.suspend(response: makeResponse(), eventLoop: loop) { _ in }
         )
@@ -790,7 +832,7 @@ final class BreakpointResponseSuspensionTests: XCTestCase {
         let loop = EmbeddedEventLoop()
         defer { loop.shutdownGracefully { _ in } }
         let notifier = StubNotifier()
-        let handler = BreakpointHandler(matcher: BreakpointMatcher(rules: []), notifier: notifier)
+        let handler = BreakpointHandler(notifier: notifier)
 
         var decisions: [BreakpointResponse] = []
         let request = BreakpointRequest(id: "rb-req", exchangeId: "ex-1", method: "GET", url: "https://a.com", headers: [], body: nil, timestamp: Date())
@@ -937,15 +979,13 @@ final class OutboundHTTPHandlerResponseTests: XCTestCase {
         BridgeSessionStore(streamHandler: ExchangeStreamHandler(), bodyStore: BodyStore())
     }
 
-    private func makeHandler() -> (BreakpointHandler, StubNotifier) {
+    private func makeHandler() -> (BreakpointHandler, StubNotifier, BreakpointMatcher) {
         let notifier = StubNotifier()
-        let handler = BreakpointHandler(
-            matcher: BreakpointMatcher(rules: [
-                BreakpointRule(hostPattern: "example.com", target: .response)
-            ]),
-            notifier: notifier
-        )
-        return (handler, notifier)
+        let matcher = BreakpointMatcher(rules: [
+            BreakpointRule(hostPattern: "example.com", target: .response)
+        ])
+        let handler = BreakpointHandler(notifier: notifier)
+        return (handler, notifier, matcher)
     }
 
     private func makeInboundContext(_ inbound: EmbeddedChannel) throws -> ChannelHandlerContext {
@@ -984,7 +1024,7 @@ final class OutboundHTTPHandlerResponseTests: XCTestCase {
 
     func testUpstreamErrorAfterEndDoesNotCloseClientDuringSuspension() throws {
         let store = makeStore()
-        let (handler, notifier) = makeHandler()
+        let (handler, notifier, matcher) = makeHandler()
         let exchange = CapturedExchange(
             method: "GET",
             url: "https://example.com/api",
@@ -1011,7 +1051,8 @@ final class OutboundHTTPHandlerResponseTests: XCTestCase {
                 store: store,
                 exchange: exchange,
                 onComplete: { completed = true },
-                breakpointHandler: handler
+                breakpointHandler: handler,
+                breakpointMatcher: matcher
             )
         ).wait()
 
@@ -1055,7 +1096,7 @@ final class OutboundHTTPHandlerResponseTests: XCTestCase {
 
     func testResponseBreakpointResumesWithBufferedBody() throws {
         let store = makeStore()
-        let (handler, notifier) = makeHandler()
+        let (handler, notifier, matcher) = makeHandler()
         let exchange = CapturedExchange(
             method: "GET",
             url: "https://example.com/api",
@@ -1081,7 +1122,8 @@ final class OutboundHTTPHandlerResponseTests: XCTestCase {
                 store: store,
                 exchange: exchange,
                 onComplete: {},
-                breakpointHandler: handler
+                breakpointHandler: handler,
+                breakpointMatcher: matcher
             )
         ).wait()
 
@@ -1108,7 +1150,7 @@ final class OutboundHTTPHandlerResponseTests: XCTestCase {
 
     func testProceedAppliesModifications() throws {
         let store = makeStore()
-        let (handler, notifier) = makeHandler()
+        let (handler, notifier, matcher) = makeHandler()
         let exchange = CapturedExchange(
             method: "GET",
             url: "https://example.com/api",
@@ -1135,7 +1177,8 @@ final class OutboundHTTPHandlerResponseTests: XCTestCase {
                 store: store,
                 exchange: exchange,
                 onComplete: { completed = true },
-                breakpointHandler: handler
+                breakpointHandler: handler,
+                breakpointMatcher: matcher
             )
         ).wait()
 
@@ -1174,7 +1217,7 @@ final class OutboundHTTPHandlerResponseTests: XCTestCase {
 
     func testCancelClosesClientConnection() throws {
         let store = makeStore()
-        let (handler, notifier) = makeHandler()
+        let (handler, notifier, matcher) = makeHandler()
         let exchange = CapturedExchange(
             method: "GET",
             url: "https://example.com/api",
@@ -1201,7 +1244,8 @@ final class OutboundHTTPHandlerResponseTests: XCTestCase {
                 store: store,
                 exchange: exchange,
                 onComplete: { completed = true },
-                breakpointHandler: handler
+                breakpointHandler: handler,
+                breakpointMatcher: matcher
             )
         ).wait()
 

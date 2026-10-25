@@ -96,6 +96,23 @@ void main() {
     },
   );
 
+  test('breakpointStream parses resolved notifications', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockStreamHandler(
+          breakpointEvents,
+          MockStreamHandler.inline(
+            onListen: (arguments, events) {
+              events.success({'type': 'resolved', 'breakpointId': 'bp-1'});
+            },
+          ),
+        );
+
+    final service = BreakpointService();
+    final notification = await service.breakpointStream.first;
+    expect(notification, isA<BreakpointResolvedNotification>());
+    expect(notification.id, 'bp-1');
+  });
+
   test(
     'sendDecision invokes breakpointDecision on the control channel',
     () async {

@@ -18,6 +18,15 @@ struct MapLocalMatcher: Sendable {
 
     var isEmpty: Bool { rules.isEmpty }
 
+    /// Eagerly compiles the regex patterns of enabled rules so the first
+    /// matching request after a configuration update does not pay the compile
+    /// cost on the event loop. Non-regex rules are cheap and stay lazy.
+    func precompile() {
+        for rule in rules where rule.useRegex && !rule.pathPattern.isEmpty {
+            _ = regexCache.regex(for: rule.pathPattern, caseSensitive: rule.isCaseSensitive)
+        }
+    }
+
     /// Returns the first enabled rule matching method + host + path, or nil.
     func firstMatch(method: String, host: String, path: String) -> MapLocalRule? {
         for rule in rules where ruleMatches(rule: rule, method: method, host: host, path: path) {

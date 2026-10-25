@@ -24,6 +24,9 @@ class BreakpointService {
     _stream ??= _events.receiveBroadcastStream().map((raw) {
       final map = Map<Object?, Object?>.from(raw as Map);
       final type = map['type'] as String;
+      if (type == 'resolved') {
+        return BreakpointResolvedNotification(map['breakpointId'] as String);
+      }
       if (type == 'response') {
         return ResponseBreakpointNotification(
           ResponseBreakpoint.fromMap(

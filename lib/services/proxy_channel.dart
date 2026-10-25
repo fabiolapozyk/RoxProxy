@@ -60,6 +60,25 @@ class ProxyChannel {
     return (result?['port'] as int?) ?? port;
   }
 
+  /// Applies a hot configuration update without restarting the proxy.
+  /// Returns the applied configuration version.
+  Future<int> updateProxyConfig({
+    required List<DomainRule> domainRules,
+    required List<MapLocalRule> mapLocalRules,
+    required bool httpsInterceptionEnabled,
+    required bool breakpointEnabled,
+    required List<BreakpointRule> breakpointRules,
+  }) async {
+    final result = await _method.invokeMethod<Map>('updateProxyConfig', {
+      'domainRules': domainRules.map((r) => r.toMap()).toList(),
+      'mapLocalRules': mapLocalRules.map((r) => r.toMap()).toList(),
+      'httpsInterceptionEnabled': httpsInterceptionEnabled,
+      'breakpointEnabled': breakpointEnabled,
+      'breakpointRules': breakpointRules.map((r) => r.toMap()).toList(),
+    });
+    return (result?['version'] as int?) ?? 0;
+  }
+
   Future<void> stopProxy() async {
     await _method.invokeMethod('stopProxy');
   }

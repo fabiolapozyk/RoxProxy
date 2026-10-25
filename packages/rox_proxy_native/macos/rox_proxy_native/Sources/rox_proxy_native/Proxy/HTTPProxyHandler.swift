@@ -21,7 +21,8 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
         /// Waiting for the first request head.
         case idle
         /// Collecting request body parts before opening the upstream connection.
-        case collecting(head: HTTPRequestHead, bodyParts: [ByteBuffer])
+        /// `config` is the snapshot captured at `.head` for this exchange.
+        case collecting(head: HTTPRequestHead, bodyParts: [ByteBuffer], config: ProxyConfig)
         /// Upstream connection established; forwarding response to client.
         case forwarding
     }
@@ -33,26 +34,20 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
     let store: BridgeSessionStore
     let certificateAuthority: CertificateAuthority?
     let domainCertCache: DomainCertificateCache?
-    let domainRules: [DomainRule]
-    let httpsInterceptionEnabled: Bool
-    let mapLocalMatcher: MapLocalMatcher?
+    let configStore: ProxyConfigStore
     let breakpointHandler: BreakpointHandler?
 
     init(
         store: BridgeSessionStore,
         certificateAuthority: CertificateAuthority? = nil,
         domainCertCache: DomainCertificateCache? = nil,
-        domainRules: [DomainRule] = [],
-        httpsInterceptionEnabled: Bool = true,
-        mapLocalMatcher: MapLocalMatcher? = nil,
+        configStore: ProxyConfigStore = ProxyConfigStore(),
         breakpointHandler: BreakpointHandler? = nil
     ) {
         self.store = store
         self.certificateAuthority = certificateAuthority
         self.domainCertCache = domainCertCache
-        self.domainRules = domainRules
-        self.httpsInterceptionEnabled = httpsInterceptionEnabled
-        self.mapLocalMatcher = mapLocalMatcher
+        self.configStore = configStore
         self.breakpointHandler = breakpointHandler
     }
 
@@ -99,21 +94,21 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
         }
 
         ProxyLogger.http.debug("HTTP request: %{public}@ %{public}@", head.method.rawValue, head.uri)
-        state = .collecting(head: head, bodyParts: [])
+        state = .collecting(head: head, bodyParts: [], config: configStore.current())
     }
 
     // MARK: - Body
 
     private func handleBody(buffer: ByteBuffer) {
-        guard case .collecting(let head, var parts) = state else { return }
+        guard case .collecting(let head, var parts, let config) = state else { return }
         parts.append(buffer)
-        state = .collecting(head: head, bodyParts: parts)
+        state = .collecting(head: head, bodyParts: parts, config: config)
     }
 
     // MARK: - End → connect + forward
 
     private func handleEnd(context: ChannelHandlerContext) {
-        guard case .collecting(let head, let bodyParts) = state else { return }
+        guard case .collecting(let head, let bodyParts, let config) = state else { return }
         state = .forwarding
 
         let target = Self.parseTarget(uri: head.uri, headers: head.headers)
@@ -177,10 +172,11 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
         // Breakpoint interception — suspend the request and wait for the user.
         // Breakpoints take precedence over Map Local for the same request.
         let matchPath = URL(string: head.uri)?.path ?? "/"
-        let breakpointMatched = breakpointHandler?
-            .matcher.shouldBreakpointRequest(
+        let breakpointMatched = breakpointHandler != nil
+            && config.breakpointEnabled
+            && config.breakpointMatcher.shouldBreakpointRequest(
                 method: head.method.rawValue, host: target.host, path: matchPath
-            ) ?? false
+            )
         exchange.isBreakpoint = breakpointMatched
 
         let store = self.store
@@ -207,7 +203,8 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
                     head: head,
                     bodyParts: bodyParts,
                     target: target,
-                    exchange: exchange
+                    exchange: exchange,
+                    config: config
                 )
             }
             if didSuspend {
@@ -220,8 +217,8 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
         }
 
         // Map Local interception — serve a local file instead of forwarding.
-        if let matcher = mapLocalMatcher, !matcher.isEmpty {
-            if let rule = matcher.firstMatch(method: head.method.rawValue, host: target.host, path: matchPath) {
+        if !config.mapLocalMatcher.isEmpty {
+            if let rule = config.mapLocalMatcher.firstMatch(method: head.method.rawValue, host: target.host, path: matchPath) {
                 ProxyLogger.map.info("Map Local: rule %{public}@ matches %{public}@ %{public}@", rule.pathPattern, head.method.rawValue, head.uri)
                 MapLocalHandler.serve(rule: rule, context: context, exchange: exchange, store: store) { [weak self] in
                     guard let self else { return }
@@ -237,7 +234,8 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
             head: head,
             bodyParts: bodyParts,
             target: target,
-            exchange: exchange
+            exchange: exchange,
+            config: config
         )
     }
 
@@ -248,7 +246,8 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
         head: HTTPRequestHead,
         bodyParts: [ByteBuffer],
         target: (host: String, port: Int, relativePath: String),
-        exchange: CapturedExchange
+        exchange: CapturedExchange,
+        config: ProxyConfig
     ) {
         var exchange = exchange
         // Build outbound request head (absolute URI → relative)
@@ -276,7 +275,9 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
                             store: store,
                             exchange: exchange,
                             onComplete: onComplete,
-                            breakpointHandler: breakpointHandler
+                            breakpointHandler: breakpointHandler,
+                            breakpointEnabled: config.breakpointEnabled,
+                            breakpointMatcher: config.breakpointMatcher
                         )
                     )
                 }
@@ -313,7 +314,8 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
         head: HTTPRequestHead,
         bodyParts: [ByteBuffer],
         target: (host: String, port: Int, relativePath: String),
-        exchange: CapturedExchange
+        exchange: CapturedExchange,
+        config: ProxyConfig
     ) {
         switch decision.action {
         case .cancel:
@@ -346,7 +348,8 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
                 head: modified.head,
                 bodyParts: modified.bodyParts,
                 target: (host: modified.host, port: modified.port, relativePath: modified.relativePath),
-                exchange: modified.exchange
+                exchange: modified.exchange,
+                config: config
             )
         }
     }
@@ -360,16 +363,18 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
         // Increment CONNECT request counter
         ProxyMetrics.shared.incrementConnectRequests()
 
-        // Decide: MITM (TLS interception) or blind tunnel.
+        // Decide: MITM (TLS interception) or blind tunnel. This decision is
+        // sticky for the connection: it uses the config snapshot captured now.
         // Map Local rules can only apply to HTTPS after decryption, so any
         // host with a matching rule forces MITM interception.
-        let hasMapLocalRule = mapLocalMatcher?.hasPossibleMatch(host: target.host) ?? false
-        let hasDomainRule = domainRules.contains(where: { $0.matches(host: target.host) })
-        let shouldMITM = httpsInterceptionEnabled
+        let config = configStore.current()
+        let hasMapLocalRule = config.mapLocalMatcher.hasPossibleMatch(host: target.host)
+        let hasDomainRule = config.domainRules.contains(where: { $0.matches(host: target.host) })
+        let shouldMITM = config.httpsInterceptionEnabled
             && domainCertCache != nil
             && (hasDomainRule || hasMapLocalRule)
 
-        if hasMapLocalRule && !httpsInterceptionEnabled {
+        if hasMapLocalRule && !config.httpsInterceptionEnabled {
             ProxyLogger.map.default("Map Local rule exists for %{public}@ but HTTPS interception is disabled — rule will not apply", target.host)
         }
 
@@ -516,7 +521,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
             host: host,
             port: port,
             store: store,
-            mapLocalMatcher: mapLocalMatcher,
+            configStore: configStore,
             breakpointHandler: breakpointHandler
         )
 

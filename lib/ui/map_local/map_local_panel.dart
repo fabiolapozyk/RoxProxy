@@ -112,7 +112,7 @@ class MapLocalRuleManager extends ConsumerWidget {
           child: Text(
             'Requests matching a rule are answered with the local file '
             'instead of reaching the server. Rules are evaluated top-down; '
-            'the first match wins. Changes apply when the proxy is restarted.',
+            'the first match wins. Changes apply to new requests.',
             style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
           ),
         ),

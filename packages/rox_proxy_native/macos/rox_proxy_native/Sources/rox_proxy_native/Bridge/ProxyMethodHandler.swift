@@ -16,8 +16,10 @@ final class ProxyMethodHandler: NSObject {
     let streamHandler: ExchangeStreamHandler
     let bodyStore: BodyStore
     let breakpointStreamHandler: BreakpointStreamHandler
-    /// Breakpoint engine created at `startProxy` (nil when disabled).
-    private var breakpointHandler: BreakpointHandler?
+    /// Live configuration shared with the running server; survives stop/start.
+    private let configStore: ProxyConfigStore
+    /// Breakpoint suspension engine, stable across configuration versions.
+    private let breakpointHandler: BreakpointHandler
 
     init(
         certificateAuthority: CertificateAuthority?,
@@ -35,6 +37,13 @@ final class ProxyMethodHandler: NSObject {
         self.bodyStore = bodyStore
         self.breakpointStreamHandler = breakpointStreamHandler
         self.crashGuard = crashGuard
+
+        let configStore = ProxyConfigStore()
+        self.configStore = configStore
+        self.breakpointHandler = BreakpointHandler(
+            notifier: breakpointStreamHandler,
+            isEnabled: { configStore.current().breakpointEnabled }
+        )
     }
 
     // MARK: - Dispatch
@@ -44,6 +53,7 @@ final class ProxyMethodHandler: NSObject {
         ProxyLogger.proxy.debug("Method call: %{public}@", call.method)
         switch call.method {
         case "startProxy":           startProxy(call, result: result)
+        case "updateProxyConfig":    updateProxyConfig(call, result: result)
         case "stopProxy":            stopProxy(result: result)
         case "getProxyState":        getProxyState(result: result)
         case "configureSystemProxy": configureSystemProxy(call, result: result)
@@ -76,61 +86,34 @@ final class ProxyMethodHandler: NSObject {
             return
         }
 
-        // Parse domain rules from Dart
-        ProxyLogger.proxy.debug("Parsing %d domain rules", (args["domainRules"] as? [[String: Any]])?.count ?? 0)
-        let rawRules = args["domainRules"] as? [[String: Any]] ?? []
-        let domainRules: [DomainRule] = rawRules.compactMap { dict in
-            guard let idStr = dict["id"] as? String,
-                  let id = UUID(uuidString: idStr),
-                  let domain = dict["domain"] as? String else { return nil }
-            let isEnabled = dict["isEnabled"] as? Bool ?? true
-            return DomainRule(id: id, domain: domain, isEnabled: isEnabled)
+        // Parse the hot-reloadable configuration. startProxy is lenient: an
+        // invalid saved rule is logged and dropped instead of preventing the
+        // proxy from starting (updateProxyConfig is strict instead).
+        let parsed = ProxyConfigParser.parse(args)
+        if !parsed.errors.isEmpty {
+            ProxyLogger.proxy.error(
+                "Ignoring %d invalid rule(s) at startup: %{public}@",
+                parsed.errors.count,
+                parsed.errors.joined(separator: "; ")
+            )
         }
-
-        let httpsInterceptionEnabled = args["httpsInterceptionEnabled"] as? Bool ?? true
+        let config = configStore.apply(parsed.config)
         let setSystemProxy = args["setSystemProxy"] as? Bool ?? true
-        let breakpointEnabled = args["breakpointEnabled"] as? Bool ?? false
-
-        // Parse Map Local rules from Dart
-        ProxyLogger.map.debug("Parsing %d Map Local rules", (args["mapLocalRules"] as? [[String: Any]])?.count ?? 0)
-        let mapLocalRules: [MapLocalRule] = (args["mapLocalRules"] as? [[String: Any]] ?? []).compactMap {
-            MapLocalRule.fromDictionary($0)
-        }
-
-        // Breakpoint engine — created only when the feature is enabled (RF1.1).
-        if breakpointEnabled {
-            // Empty rules keep the v1 behaviour: every request breaks.
-            let rules = (args["breakpointRules"] as? [[String: Any]] ?? []).compactMap {
-                BreakpointRule.fromDictionary($0)
-            }
-            let handler = BreakpointHandler(
-                matcher: BreakpointMatcher(rules: rules),
-                notifier: breakpointStreamHandler
-            )
-            self.breakpointHandler = handler
-            ProxyLogger.breakpoint.info(
-                "Breakpoint enabled via Flutter method call (%d rule(s))", rules.count
-            )
-        } else {
-            self.breakpointHandler = nil
-        }
 
         ProxyLogger.proxy.debug(
             "%{public}@",
-            "Proxy configuration: port=\(port), timeout=\(timeout), https=\(httpsInterceptionEnabled ? "yes" : "no"), systemProxy=\(setSystemProxy ? "yes" : "no"), mapLocalRules=\(mapLocalRules.count), breakpoints=\(breakpointEnabled ? "yes" : "no")"
+            "Proxy configuration v\(config.version): port=\(port), timeout=\(timeout), https=\(config.httpsInterceptionEnabled ? "yes" : "no"), systemProxy=\(setSystemProxy ? "yes" : "no"), breakpoints=\(config.breakpointEnabled ? "yes" : "no")"
         )
 
         let store = BridgeSessionStore(streamHandler: streamHandler, bodyStore: bodyStore)
         let server = ProxyServer(
             port: port,
             store: store,
-            domainRules: domainRules,
-            mapLocalRules: mapLocalRules,
+            configStore: configStore,
             connectionTimeoutSeconds: timeout,
             certificateAuthority: certificateAuthority,
             domainCertCache: domainCertCache,
-            httpsInterceptionEnabled: httpsInterceptionEnabled,
-            breakpointHandler: self.breakpointHandler
+            breakpointHandler: breakpointHandler
         )
         self.proxyServer = server
 
@@ -162,6 +145,46 @@ final class ProxyMethodHandler: NSObject {
                 ))
             }
         }
+    }
+
+    /// Applies a hot configuration update without stopping the server.
+    ///
+    /// Strict: any invalid rule rejects the whole update, so the UI and the
+    /// runtime never diverge. The swap is atomic; the new snapshot is used by
+    /// the next request, while in-flight requests keep their own snapshot.
+    @MainActor
+    private func updateProxyConfig(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any] else {
+            result(FlutterError(code: "INVALID_ARGS", message: "Missing configuration payload", details: nil))
+            return
+        }
+
+        let parsed = ProxyConfigParser.parse(args)
+        guard parsed.errors.isEmpty else {
+            ProxyLogger.proxy.error(
+                "Rejecting proxy config update: %{public}@",
+                parsed.errors.joined(separator: "; ")
+            )
+            result(FlutterError(
+                code: "INVALID_CONFIG",
+                message: "Invalid proxy configuration",
+                details: parsed.errors
+            ))
+            return
+        }
+
+        let wasEnabled = configStore.current().breakpointEnabled
+        let applied = configStore.apply(parsed.config)
+
+        // Disabling breakpoints releases already-suspended requests and tells
+        // the UI to close their dialogs. Other updates leave pending requests
+        // on the snapshot they started with.
+        if wasEnabled && !applied.breakpointEnabled {
+            breakpointHandler.releaseAll()
+        }
+
+        ProxyLogger.proxy.info("Proxy configuration updated to v%d", applied.version)
+        result(["success": true, "version": applied.version])
     }
 
     @MainActor
@@ -214,9 +237,9 @@ final class ProxyMethodHandler: NSObject {
         systemProxyManager = nil
         crashGuard?.clearSentinel()
 
-        // Release every suspended request with auto-proceed (RNF2).
-        breakpointHandler?.releaseAll()
-        breakpointHandler = nil
+        // Release every suspended request with auto-proceed (RNF2). The
+        // handler itself is reused across restarts.
+        breakpointHandler.releaseAll()
 
         let server = proxyServer
         proxyServer = nil
@@ -382,12 +405,9 @@ final class ProxyMethodHandler: NSObject {
             result(FlutterError(code: "INVALID_ARGS", message: "Invalid breakpoint decision", details: nil))
             return
         }
-        guard let handler = breakpointHandler else {
-            ProxyLogger.breakpoint.default("breakpointDecision received but breakpoints are disabled")
-            result(["accepted": false])
-            return
-        }
-        handler.resolve(breakpointId: response.breakpointId, response: response)
+        // Unknown/already-released ids are ignored by `resolve` (exactly-once),
+        // so a late decision after a disable is harmless.
+        breakpointHandler.resolve(breakpointId: response.breakpointId, response: response)
         result(["accepted": true])
     }
 

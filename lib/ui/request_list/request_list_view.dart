@@ -447,9 +447,7 @@ class _ExchangeRow extends ConsumerWidget {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'Breakpoint rule added — proxy will restart to apply it',
-          ),
+          content: Text('Breakpoint rule added — applies to new requests.'),
           duration: Duration(seconds: 2),
           behavior: SnackBarBehavior.floating,
           margin: EdgeInsets.only(bottom: 80.0, left: 10.0, right: 10.0),
@@ -477,9 +475,7 @@ class _ExchangeRow extends ConsumerWidget {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'Map Local rule added — proxy will restart to apply it',
-          ),
+          content: Text('Map Local rule added — applies to new requests.'),
           duration: Duration(seconds: 2),
           behavior: SnackBarBehavior.floating,
           margin: EdgeInsets.only(bottom: 80.0, left: 10.0, right: 10.0),

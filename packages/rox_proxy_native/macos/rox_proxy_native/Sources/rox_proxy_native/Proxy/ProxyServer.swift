@@ -14,12 +14,9 @@ final class ProxyServer {
     let certificateAuthority: CertificateAuthority?
     let domainCertCache: DomainCertificateCache?
     private let connectionTimeoutSeconds: Int
-    // Snapshot of domain rules taken at start time (Sendable value type, safe to pass to NIO threads)
-    private let domainRules: [DomainRule]
-    private let httpsInterceptionEnabled: Bool
-    // Snapshot of Map Local rules taken at start time.
-    private let mapLocalRules: [MapLocalRule]
-    /// Breakpoint engine (nil when the feature is disabled).
+    /// Live configuration, hot-swappable while the server is running.
+    private let configStore: ProxyConfigStore
+    /// Breakpoint suspension engine (shared across configuration versions).
     private let breakpointHandler: BreakpointHandler?
 
     private var channel: Channel?
@@ -31,22 +28,18 @@ final class ProxyServer {
     init(
         port: Int,
         store: BridgeSessionStore,
-        domainRules: [DomainRule] = [],
-        mapLocalRules: [MapLocalRule] = [],
+        configStore: ProxyConfigStore = ProxyConfigStore(),
         connectionTimeoutSeconds: Int = 30,
         certificateAuthority: CertificateAuthority? = nil,
         domainCertCache: DomainCertificateCache? = nil,
-        httpsInterceptionEnabled: Bool = true,
         breakpointHandler: BreakpointHandler? = nil
     ) {
         self.port = port
         self.store = store
+        self.configStore = configStore
+        self.connectionTimeoutSeconds = connectionTimeoutSeconds
         self.certificateAuthority = certificateAuthority
         self.domainCertCache = domainCertCache
-        self.connectionTimeoutSeconds = connectionTimeoutSeconds
-        self.domainRules = domainRules
-        self.mapLocalRules = mapLocalRules
-        self.httpsInterceptionEnabled = httpsInterceptionEnabled
         self.breakpointHandler = breakpointHandler
     }
 
@@ -65,18 +58,18 @@ final class ProxyServer {
         let store         = self.store
         let ca            = self.certificateAuthority
         let certCache     = self.domainCertCache
-        let domainRules   = self.domainRules
+        let configStore   = self.configStore
         let timeoutSecs   = self.connectionTimeoutSeconds
-        let httpsEnabled  = self.httpsInterceptionEnabled
-        let mapLocal      = MapLocalMatcher(rules: self.mapLocalRules)
         let breakpoints   = self.breakpointHandler
-        if !mapLocal.isEmpty {
-            ProxyLogger.map.info("Map Local: %d enabled rule(s) loaded", self.mapLocalRules.filter(\.isEnabled).count)
+        let initialConfig = configStore.current()
+        if !initialConfig.mapLocalMatcher.isEmpty {
+            ProxyLogger.map.info("Map Local: rules v%d loaded", initialConfig.version)
         }
-        if breakpoints != nil {
+        if initialConfig.breakpointEnabled {
             ProxyLogger.breakpoint.info(
-                "Breakpoint: enabled (timeout %llds)",
-                BreakpointHandler.defaultTimeout.nanoseconds / 1_000_000_000
+                "Breakpoint: enabled (timeout %llds, rules v%d)",
+                BreakpointHandler.defaultTimeout.nanoseconds / 1_000_000_000,
+                initialConfig.version
             )
         }
 
@@ -98,9 +91,7 @@ final class ProxyServer {
                                 store: store,
                                 certificateAuthority: ca,
                                 domainCertCache: certCache,
-                                domainRules: domainRules,
-                                httpsInterceptionEnabled: httpsEnabled,
-                                mapLocalMatcher: mapLocal,
+                                configStore: configStore,
                                 breakpointHandler: breakpoints
                             ),
                             name: "HTTPProxyHandler"

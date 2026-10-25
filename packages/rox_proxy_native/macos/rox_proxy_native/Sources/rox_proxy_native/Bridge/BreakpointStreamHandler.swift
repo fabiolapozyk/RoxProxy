@@ -37,6 +37,15 @@ final class BreakpointStreamHandler: NSObject, FlutterStreamHandler, BreakpointH
         sink(dict)
     }
 
+    func released(breakpointId: String) {
+        guard let sink = eventSink else { return }
+        let dict: [String: Any] = [
+            "type": "resolved",
+            "breakpointId": breakpointId,
+        ]
+        sink(dict)
+    }
+
     // MARK: - FlutterStreamHandler
 
     func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {

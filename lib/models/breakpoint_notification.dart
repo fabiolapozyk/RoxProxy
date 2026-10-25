@@ -33,3 +33,16 @@ class ResponseBreakpointNotification extends BreakpointNotification {
   @override
   String get host => response.host;
 }
+
+/// The native side released a suspended breakpoint without a user decision
+/// (feature disabled or proxy stopped). The UI must close the matching dialog.
+class BreakpointResolvedNotification extends BreakpointNotification {
+  final String breakpointId;
+  const BreakpointResolvedNotification(this.breakpointId);
+
+  @override
+  String get id => breakpointId;
+
+  @override
+  String get host => '';
+}

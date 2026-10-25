@@ -143,6 +143,26 @@ class _MapLocalRuleEditDialogState extends State<MapLocalRuleEditDialog> {
       if (key.isNotEmpty) headers[key] = c.value.text;
     }
 
+    final pathPattern = _pathController.text.trim().isEmpty
+        ? '**'
+        : _pathController.text.trim();
+
+    // The native side rejects invalid regexes on a hot update; catch the
+    // common cases here so the user gets immediate feedback instead of a
+    // silently rejected configuration.
+    if (_useRegex && pathPattern != '**') {
+      try {
+        RegExp(pathPattern);
+      } on FormatException {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Invalid regular expression in path pattern.'),
+          ),
+        );
+        return;
+      }
+    }
+
     final base = widget.initial ?? MapLocalRule();
     final isInline = _isInline;
     final updated = MapLocalRule(
@@ -153,9 +173,7 @@ class _MapLocalRuleEditDialogState extends State<MapLocalRuleEditDialog> {
       hostPattern: _hostController.text.trim().isEmpty
           ? '*'
           : _hostController.text.trim(),
-      pathPattern: _pathController.text.trim().isEmpty
-          ? '**'
-          : _pathController.text.trim(),
+      pathPattern: pathPattern,
       httpMethod: _httpMethod,
       responseSource: _responseSource,
       inlineBody: isInline ? _bodyController.text : null,

@@ -17,20 +17,20 @@ final class MITMSetupHandler: ChannelInboundHandler, RemovableChannelHandler {
     let host: String
     let port: Int
     let store: BridgeSessionStore
-    let mapLocalMatcher: MapLocalMatcher?
+    let configStore: ProxyConfigStore
     let breakpointHandler: BreakpointHandler?
 
     init(
         host: String,
         port: Int,
         store: BridgeSessionStore,
-        mapLocalMatcher: MapLocalMatcher? = nil,
+        configStore: ProxyConfigStore = ProxyConfigStore(),
         breakpointHandler: BreakpointHandler? = nil
     ) {
         self.host = host
         self.port = port
         self.store = store
-        self.mapLocalMatcher = mapLocalMatcher
+        self.configStore = configStore
         self.breakpointHandler = breakpointHandler
     }
 
@@ -52,7 +52,7 @@ final class MITMSetupHandler: ChannelInboundHandler, RemovableChannelHandler {
         let host = self.host
         let port = self.port
         let store = self.store
-        let mapLocalMatcher = self.mapLocalMatcher
+        let configStore = self.configStore
         let breakpointHandler = self.breakpointHandler
 
         // Insert handlers after self (i.e. at .last), then remove self.
@@ -76,7 +76,7 @@ final class MITMSetupHandler: ChannelInboundHandler, RemovableChannelHandler {
                     host: host,
                     port: port,
                     store: store,
-                    mapLocalMatcher: mapLocalMatcher,
+                    configStore: configStore,
                     breakpointHandler: breakpointHandler
                 ),
                 name: "MITMHandler",
@@ -102,7 +102,8 @@ final class MITMHandler: ChannelInboundHandler {
 
     private enum State {
         case idle
-        case collecting(head: HTTPRequestHead, bodyParts: [ByteBuffer])
+        /// `config` is the snapshot captured at `.head` for this exchange.
+        case collecting(head: HTTPRequestHead, bodyParts: [ByteBuffer], config: ProxyConfig)
         case forwarding
     }
 
@@ -111,20 +112,20 @@ final class MITMHandler: ChannelInboundHandler {
     let host: String
     let port: Int
     let store: BridgeSessionStore
-    let mapLocalMatcher: MapLocalMatcher?
+    let configStore: ProxyConfigStore
     let breakpointHandler: BreakpointHandler?
 
     init(
         host: String,
         port: Int,
         store: BridgeSessionStore,
-        mapLocalMatcher: MapLocalMatcher? = nil,
+        configStore: ProxyConfigStore = ProxyConfigStore(),
         breakpointHandler: BreakpointHandler? = nil
     ) {
         self.host = host
         self.port = port
         self.store = store
-        self.mapLocalMatcher = mapLocalMatcher
+        self.configStore = configStore
         self.breakpointHandler = breakpointHandler
     }
 
@@ -140,12 +141,12 @@ final class MITMHandler: ChannelInboundHandler {
                 context.close(promise: nil); return 
             }
             ProxyLogger.http.debug("MITM decrypted request: %{public}@ %{public}@", head.method.rawValue, head.uri)
-            state = .collecting(head: head, bodyParts: [])
+            state = .collecting(head: head, bodyParts: [], config: configStore.current())
         case .body(let buffer):
             ProxyLogger.http.debug("MITMHandler: received .body with %d bytes", buffer.readableBytes)
-            guard case .collecting(let head, var parts) = state else { return }
+            guard case .collecting(let head, var parts, let config) = state else { return }
             parts.append(buffer)
-            state = .collecting(head: head, bodyParts: parts)
+            state = .collecting(head: head, bodyParts: parts, config: config)
         case .end:
             ProxyLogger.http.debug("MITMHandler: received .end - calling handleEnd")
             handleEnd(context: context)
@@ -166,7 +167,7 @@ final class MITMHandler: ChannelInboundHandler {
 
     private func handleEnd(context: ChannelHandlerContext) {
         ProxyLogger.http.debug("MITMHandler: handleEnd called, state=%{public}@", "\(state)")
-        guard case .collecting(let head, let bodyParts) = state else {
+        guard case .collecting(let head, let bodyParts, let config) = state else {
             ProxyLogger.http.error("MITMHandler: handleEnd called but state is not .collecting")
             return 
         }
@@ -201,10 +202,11 @@ final class MITMHandler: ChannelInboundHandler {
         // Breakpoint interception — suspend the request and wait for the user.
         // Breakpoints take precedence over Map Local for the same request.
         let matchPath = URL(string: head.uri)?.path ?? "/"
-        let breakpointMatched = breakpointHandler?
-            .matcher.shouldBreakpointRequest(
+        let breakpointMatched = breakpointHandler != nil
+            && config.breakpointEnabled
+            && config.breakpointMatcher.shouldBreakpointRequest(
                 method: head.method.rawValue, host: host, path: matchPath
-            ) ?? false
+            )
         exchange.isBreakpoint = breakpointMatched
 
         if breakpointMatched, let breakpointHandler {
@@ -227,7 +229,8 @@ final class MITMHandler: ChannelInboundHandler {
                     context: context,
                     head: head,
                     bodyParts: bodyParts,
-                    exchange: exchange
+                    exchange: exchange,
+                    config: config
                 )
             }
             if didSuspend {
@@ -240,8 +243,8 @@ final class MITMHandler: ChannelInboundHandler {
         }
 
         // Map Local interception — serve a local file instead of forwarding.
-        if let matcher = mapLocalMatcher, !matcher.isEmpty {
-            if let rule = matcher.firstMatch(method: head.method.rawValue, host: host, path: matchPath) {
+        if !config.mapLocalMatcher.isEmpty {
+            if let rule = config.mapLocalMatcher.firstMatch(method: head.method.rawValue, host: host, path: matchPath) {
                 ProxyLogger.map.info("Map Local (HTTPS): rule %{public}@ matches %{public}@ %{public}@", rule.pathPattern, head.method.rawValue, head.uri)
                 MapLocalHandler.serve(rule: rule, context: context, exchange: exchange, store: store) { [weak self] in
                     guard let self else { return }
@@ -251,7 +254,13 @@ final class MITMHandler: ChannelInboundHandler {
             }
         }
 
-        forwardToUpstream(context: context, head: head, bodyParts: bodyParts, exchange: exchange)
+        forwardToUpstream(
+            context: context,
+            head: head,
+            bodyParts: bodyParts,
+            exchange: exchange,
+            config: config
+        )
     }
 
     /// Opens the upstream TLS connection and forwards the (possibly modified)
@@ -261,6 +270,7 @@ final class MITMHandler: ChannelInboundHandler {
         head: HTTPRequestHead,
         bodyParts: [ByteBuffer],
         exchange: CapturedExchange,
+        config: ProxyConfig,
         upstreamHost: String? = nil,
         upstreamPort: Int? = nil
     ) {
@@ -319,7 +329,9 @@ final class MITMHandler: ChannelInboundHandler {
                                     store: store,
                                     exchange: exchange,
                                     onComplete: onComplete,
-                                    breakpointHandler: breakpointHandler
+                                    breakpointHandler: breakpointHandler,
+                                    breakpointEnabled: config.breakpointEnabled,
+                                    breakpointMatcher: config.breakpointMatcher
                                 )
                             )
                         }
@@ -365,7 +377,8 @@ final class MITMHandler: ChannelInboundHandler {
         context: ChannelHandlerContext,
         head: HTTPRequestHead,
         bodyParts: [ByteBuffer],
-        exchange: CapturedExchange
+        exchange: CapturedExchange,
+        config: ProxyConfig
     ) {
         switch decision.action {
         case .cancel:
@@ -398,6 +411,7 @@ final class MITMHandler: ChannelInboundHandler {
                 head: modified.head,
                 bodyParts: modified.bodyParts,
                 exchange: modified.exchange,
+                config: config,
                 upstreamHost: modified.host,
                 upstreamPort: modified.port
             )

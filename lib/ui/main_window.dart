@@ -44,12 +44,12 @@ class _MainWindowState extends ConsumerState<MainWindow> {
   List<String>? _lastBreakpointRuleKeys;
   bool? _lastBreakpointEnabled;
   double _listWidth = 630;
-  Timer? _restartTimer;
+  Timer? _configUpdateTimer;
 
-  /// Coalesces rapid configuration changes into a single proxy restart, so a
+  /// Coalesces rapid configuration changes into a single hot update, so a
   /// burst of rule edits (e.g. toggling Map Local rules within a couple of
-  /// seconds) cannot trigger overlapping stop/start cycles.
-  static const Duration _restartDebounce = Duration(milliseconds: 400);
+  /// seconds) cannot flood the method channel.
+  static const Duration _configUpdateDebounce = Duration(milliseconds: 400);
 
   @override
   void initState() {
@@ -65,7 +65,7 @@ class _MainWindowState extends ConsumerState<MainWindow> {
   @override
   void dispose() {
     MenuChannel.clearHandler();
-    _restartTimer?.cancel();
+    _configUpdateTimer?.cancel();
     super.dispose();
   }
 
@@ -78,17 +78,20 @@ class _MainWindowState extends ConsumerState<MainWindow> {
     }
   }
 
-  void _scheduleProxyRestart() {
-    _restartTimer?.cancel();
-    _restartTimer = Timer(_restartDebounce, _performProxyRestart);
+  void _scheduleProxyConfigUpdate() {
+    _configUpdateTimer?.cancel();
+    _configUpdateTimer = Timer(
+      _configUpdateDebounce,
+      _performProxyConfigUpdate,
+    );
   }
 
-  Future<void> _performProxyRestart() async {
+  Future<void> _performProxyConfigUpdate() async {
     if (!mounted) return;
-    // The user may have stopped the proxy while the restart was pending.
+    // The user may have stopped the proxy while the update was pending.
     if (!ref.read(proxyStateProvider).isRunning) return;
     final settings = ref.read(settingsProvider);
-    await ref.read(proxyStateProvider.notifier).restart(settings);
+    await ref.read(proxyStateProvider.notifier).updateConfig(settings);
   }
 
   void _maybeAutoStart() {
@@ -100,9 +103,10 @@ class _MainWindowState extends ConsumerState<MainWindow> {
     }
   }
 
-  /// Restarts the proxy whenever domain rules change while it's running,
-  /// so MITM rules take effect immediately without a manual stop/start.
-  void _maybeRestartForRuleChange(ProxySettings settings) {
+  /// Updates the proxy configuration whenever domain rules change while it's
+  /// running, so MITM rules take effect on new requests without a manual
+  /// stop/start.
+  void _maybeUpdateForRuleChange(ProxySettings settings) {
     // Ignore calls before settings are loaded from disk — the default empty
     // rules would look like a "change" compared to the real saved rules.
     if (!ref.read(settingsLoadedProvider)) return;
@@ -115,15 +119,16 @@ class _MainWindowState extends ConsumerState<MainWindow> {
     if (proxyState.isRunning &&
         _lastDomainRuleIds != null &&
         !listEquals(_lastDomainRuleIds, currentIds)) {
-      _scheduleProxyRestart();
+      _scheduleProxyConfigUpdate();
     }
 
     _lastDomainRuleIds = currentIds;
   }
 
-  /// Restarts the proxy whenever Map Local rules change while it's running,
-  /// so the new rules take effect immediately without a manual stop/start.
-  void _maybeRestartForMapLocalChange(List<MapLocalRule> rules) {
+  /// Updates the proxy configuration whenever Map Local rules change while
+  /// it's running, so the new rules take effect on new requests without a
+  /// manual stop/start.
+  void _maybeUpdateForMapLocalChange(List<MapLocalRule> rules) {
     if (!ref.read(mapLocalLoadedProvider)) return;
 
     final currentKeys = rules.map(_ruleKey).toList()..sort();
@@ -132,28 +137,28 @@ class _MainWindowState extends ConsumerState<MainWindow> {
     if (proxyState.isRunning &&
         _lastMapLocalRuleKeys != null &&
         !listEquals(_lastMapLocalRuleKeys, currentKeys)) {
-      _scheduleProxyRestart();
+      _scheduleProxyConfigUpdate();
     }
 
     _lastMapLocalRuleKeys = currentKeys;
   }
 
-  /// Restarts the proxy whenever the breakpoint toggle changes while the
-  /// proxy is running, so the feature takes effect immediately.
-  void _maybeRestartForBreakpointChange(ProxySettings settings) {
+  /// Updates the proxy configuration whenever the breakpoint toggle changes
+  /// while the proxy is running, so the feature takes effect on new requests.
+  void _maybeUpdateForBreakpointChange(ProxySettings settings) {
     if (!ref.read(settingsLoadedProvider)) return;
     final proxyState = ref.read(proxyStateProvider);
     if (proxyState.isRunning &&
         _lastBreakpointEnabled != null &&
         _lastBreakpointEnabled != settings.breakpointEnabled) {
-      _scheduleProxyRestart();
+      _scheduleProxyConfigUpdate();
     }
     _lastBreakpointEnabled = settings.breakpointEnabled;
   }
 
-  /// Restarts the proxy whenever breakpoint rules change while it's running,
-  /// so the new rules take effect immediately.
-  void _maybeRestartForBreakpointRuleChange(List<BreakpointRule> rules) {
+  /// Updates the proxy configuration whenever breakpoint rules change while
+  /// it's running, so the new rules take effect on new requests.
+  void _maybeUpdateForBreakpointRuleChange(List<BreakpointRule> rules) {
     if (!ref.read(breakpointRulesLoadedProvider)) return;
 
     final currentKeys = rules.map(_breakpointRuleKey).toList()..sort();
@@ -162,7 +167,7 @@ class _MainWindowState extends ConsumerState<MainWindow> {
     if (proxyState.isRunning &&
         _lastBreakpointRuleKeys != null &&
         !listEquals(_lastBreakpointRuleKeys, currentKeys)) {
-      _scheduleProxyRestart();
+      _scheduleProxyConfigUpdate();
     }
 
     _lastBreakpointRuleKeys = currentKeys;
@@ -216,6 +221,9 @@ class _MainWindowState extends ConsumerState<MainWindow> {
               ),
               ResponseBreakpointNotification(:final response) =>
                 ResponseBreakpointDialog(response: response),
+              // Never set as `active` (the provider consumes it), but keeps the
+              // sealed switch exhaustive.
+              BreakpointResolvedNotification() => const SizedBox.shrink(),
             },
           );
         });
@@ -233,19 +241,19 @@ class _MainWindowState extends ConsumerState<MainWindow> {
     final offlineSession = ref.watch(offlineSessionProvider);
     final httpsEnabled = settings.httpsInterceptionEnabled;
 
-    // Restart proxy if domain rules, Map Local rules, HTTPS interception
-    // flag, breakpoints toggle or breakpoint rules changed while running
+    // Hot-update the proxy if domain rules, Map Local rules, HTTPS
+    // interception flag, breakpoints toggle or breakpoint rules changed
     WidgetsBinding.instance.addPostFrameCallback(
-      (_) => _maybeRestartForRuleChange(settings),
+      (_) => _maybeUpdateForRuleChange(settings),
     );
     WidgetsBinding.instance.addPostFrameCallback(
-      (_) => _maybeRestartForMapLocalChange(mapLocalRules),
+      (_) => _maybeUpdateForMapLocalChange(mapLocalRules),
     );
     WidgetsBinding.instance.addPostFrameCallback(
-      (_) => _maybeRestartForBreakpointChange(settings),
+      (_) => _maybeUpdateForBreakpointChange(settings),
     );
     WidgetsBinding.instance.addPostFrameCallback(
-      (_) => _maybeRestartForBreakpointRuleChange(breakpointRules),
+      (_) => _maybeUpdateForBreakpointRuleChange(breakpointRules),
     );
 
     return Scaffold(
@@ -345,9 +353,9 @@ class _MainWindowState extends ConsumerState<MainWindow> {
           enabled: proxyState is! ProxyStarting,
           onPressed: () {
             if (proxyState.isRunning) {
-              // Cancel a pending debounced restart so it cannot bring the
+              // Cancel a pending debounced config update so it cannot bring the
               // proxy back up right after a manual stop.
-              _restartTimer?.cancel();
+              _configUpdateTimer?.cancel();
               ref.read(proxyStateProvider.notifier).stop();
             } else {
               final settings = ref.read(settingsProvider);
@@ -368,9 +376,9 @@ class _MainWindowState extends ConsumerState<MainWindow> {
           onPressed: () {
             final notifier = ref.read(settingsProvider.notifier);
             notifier.setHttpsInterceptionEnabled(!httpsEnabled);
-            // Restart proxy if running so the change takes effect.
+            // Apply to new connections without restarting the proxy.
             if (proxyState.isRunning) {
-              _scheduleProxyRestart();
+              _scheduleProxyConfigUpdate();
             }
           },
         ),

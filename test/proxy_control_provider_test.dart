@@ -21,6 +21,7 @@ class _FakeProxyChannel extends ProxyChannel {
   final Duration delay;
   int startCalls = 0;
   int stopCalls = 0;
+  int updateCalls = 0;
   int _inFlight = 0;
   int maxInFlight = 0;
 
@@ -47,6 +48,19 @@ class _FakeProxyChannel extends ProxyChannel {
     startCalls++;
     await _track();
     return port;
+  }
+
+  @override
+  Future<int> updateProxyConfig({
+    required List<DomainRule> domainRules,
+    required List<MapLocalRule> mapLocalRules,
+    required bool httpsInterceptionEnabled,
+    required bool breakpointEnabled,
+    required List<BreakpointRule> breakpointRules,
+  }) async {
+    updateCalls++;
+    await _track();
+    return updateCalls;
   }
 
   @override
@@ -123,5 +137,35 @@ void main() {
 
     expect(channel.maxInFlight, 1);
     expect(container.read(proxyStateProvider), isA<ProxyRunning>());
+  });
+
+  test('config updates are serialized and never restart the proxy', () async {
+    final notifier = container.read(proxyStateProvider.notifier);
+    final settings = ProxySettings();
+
+    await notifier.start(settings);
+    final startsBefore = channel.startCalls;
+    final stopsBefore = channel.stopCalls;
+
+    await Future.wait([
+      notifier.updateConfig(settings),
+      notifier.updateConfig(settings),
+      notifier.updateConfig(settings),
+    ]);
+
+    expect(channel.updateCalls, 3);
+    expect(channel.startCalls, startsBefore);
+    expect(channel.stopCalls, stopsBefore);
+    expect(channel.maxInFlight, 1, reason: 'updates must be serialized');
+    expect(container.read(proxyStateProvider), isA<ProxyRunning>());
+  });
+
+  test('updateConfig is a no-op when the proxy is stopped', () async {
+    final notifier = container.read(proxyStateProvider.notifier);
+
+    await notifier.updateConfig(ProxySettings());
+
+    expect(channel.updateCalls, 0);
+    expect(container.read(proxyStateProvider), isA<ProxyStopped>());
   });
 }

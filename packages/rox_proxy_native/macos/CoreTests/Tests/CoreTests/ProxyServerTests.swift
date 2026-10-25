@@ -94,6 +94,59 @@ final class ProxyServerTests: XCTestCase {
         await stop(server3)
     }
 
+    // MARK: - Hot reload
+
+    /// The server must apply a new configuration to new requests without a
+    /// restart: this is the regression guard for the VPN disconnect fix.
+    func testHotReloadAppliesToNewRequestsWithoutRestart() async throws {
+        let port = nextPort()
+        let before = MapLocalRule(
+            hostPattern: "example.test",
+            pathPattern: "/before",
+            httpMethod: "GET",
+            responseSource: MapLocalRule.sourceInline,
+            inlineBody: "old-body"
+        )
+        let after = MapLocalRule(
+            hostPattern: "example.test",
+            pathPattern: "/after",
+            httpMethod: "GET",
+            responseSource: MapLocalRule.sourceInline,
+            inlineBody: "new-body"
+        )
+        let configStore = ProxyConfigStore(initial: makeConfig([before]))
+        let server = ProxyServer(port: port, store: makeStore(), configStore: configStore)
+        try await server.start()
+
+        let first = try await requestTo(
+            port: port,
+            request: "GET http://example.test/before HTTP/1.1\r\nHost: example.test\r\nConnection: close\r\n\r\n"
+        )
+        XCTAssertTrue(first.contains("old-body"), "first response: \(first)")
+
+        // Atomic hot swap: no stop/start, no port change.
+        _ = configStore.apply(makeConfig([after]))
+
+        let second = try await requestTo(
+            port: port,
+            request: "GET http://example.test/after HTTP/1.1\r\nHost: example.test\r\nConnection: close\r\n\r\n"
+        )
+        XCTAssertTrue(second.contains("new-body"), "second response: \(second)")
+
+        await stop(server)
+    }
+
+    private func makeConfig(_ rules: [MapLocalRule]) -> ProxyConfig {
+        ProxyConfig(
+            domainRules: [],
+            mapLocalMatcher: MapLocalMatcher(rules: rules),
+            breakpointMatcher: BreakpointMatcher(rules: []),
+            breakpointEnabled: false,
+            httpsInterceptionEnabled: true,
+            version: 0
+        )
+    }
+
     // MARK: - Metrics
 
     func testMetricsResetOnStart() async throws {

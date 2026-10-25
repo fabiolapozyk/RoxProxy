@@ -215,6 +215,36 @@ void main() {
       expect(result, 9999);
     });
 
+    test(
+      'updateProxyConfig forwards the hot configuration and version',
+      () async {
+        Map<String, dynamic>? capturedArgs;
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(controlChannel, (call) async {
+              expect(call.method, 'updateProxyConfig');
+              capturedArgs = Map<String, dynamic>.from(call.arguments as Map);
+              return {'success': true, 'version': 7};
+            });
+
+        final version = await proxyChannel.updateProxyConfig(
+          domainRules: [DomainRule(domain: 'example.com')],
+          mapLocalRules: const [],
+          httpsInterceptionEnabled: false,
+          breakpointEnabled: true,
+          breakpointRules: const [],
+        );
+
+        expect(version, 7);
+        expect(capturedArgs!['httpsInterceptionEnabled'], isFalse);
+        expect(capturedArgs!['breakpointEnabled'], isTrue);
+        expect(capturedArgs!['domainRules'], isA<List>());
+        expect(capturedArgs!['mapLocalRules'], isA<List>());
+        expect(capturedArgs!['breakpointRules'], isA<List>());
+        expect(capturedArgs!.containsKey('port'), isFalse);
+        expect(capturedArgs!.containsKey('connectionTimeoutSeconds'), isFalse);
+      },
+    );
+
     test('stopProxy should invoke the channel', () async {
       var called = false;
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger

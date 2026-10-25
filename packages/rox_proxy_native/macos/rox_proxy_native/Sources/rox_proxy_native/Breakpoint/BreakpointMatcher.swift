@@ -18,6 +18,14 @@ struct BreakpointMatcher: Sendable {
         rules.filter(\.isEnabled)
     }
 
+    /// Eagerly compiles the glob patterns of enabled rules so the first match
+    /// after a configuration update does not compile on the event loop.
+    func precompile() {
+        for rule in enabledRules where !rule.pathPattern.isEmpty {
+            _ = regexCache.regex(for: rule.pathPattern)
+        }
+    }
+
     // MARK: - Matching
 
     func shouldBreakpointRequest(method: String, host: String, path: String) -> Bool {

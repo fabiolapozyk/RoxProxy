@@ -63,7 +63,7 @@ class BreakpointRulesManager extends ConsumerWidget {
             'Breakpoints are active only when at least one rule is enabled: '
             'with no rules nothing is intercepted. Add a rule with target '
             '"Response" (or "Request + Response") to also suspend responses. '
-            'Changes apply when the proxy is restarted.',
+            'Changes apply to new requests.',
             style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
           ),
         ),

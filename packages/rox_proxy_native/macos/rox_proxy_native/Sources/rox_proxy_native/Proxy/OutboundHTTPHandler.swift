@@ -24,6 +24,8 @@ final class OutboundHTTPHandler: ChannelInboundHandler {
     private var responseStarted = false
     private let onComplete: () -> Void
     private let breakpointHandler: BreakpointHandler?
+    private let breakpointEnabled: Bool
+    private let breakpointMatcher: BreakpointMatcher
 
     /// Response held back between `.head` and `.end` while waiting to decide.
     private struct SuspendedResponse {
@@ -44,13 +46,17 @@ final class OutboundHTTPHandler: ChannelInboundHandler {
         store: BridgeSessionStore,
         exchange: CapturedExchange,
         onComplete: @escaping () -> Void,
-        breakpointHandler: BreakpointHandler? = nil
+        breakpointHandler: BreakpointHandler? = nil,
+        breakpointEnabled: Bool = true,
+        breakpointMatcher: BreakpointMatcher = BreakpointMatcher(rules: [])
     ) {
         self.inboundContext = inboundContext
         self.store = store
         self.exchange = exchange
         self.onComplete = onComplete
         self.breakpointHandler = breakpointHandler
+        self.breakpointEnabled = breakpointEnabled
+        self.breakpointMatcher = breakpointMatcher
     }
 
     // MARK: - ChannelInboundHandler
@@ -181,8 +187,8 @@ final class OutboundHTTPHandler: ChannelInboundHandler {
     // MARK: - Response breakpoint
 
     private func shouldBreakpointResponse() -> Bool {
-        guard let handler = breakpointHandler else { return false }
-        return handler.matcher.shouldBreakpointResponse(
+        guard breakpointEnabled, breakpointHandler != nil else { return false }
+        return breakpointMatcher.shouldBreakpointResponse(
             method: exchange.method, host: exchange.host, path: exchange.path
         )
     }

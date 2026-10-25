@@ -47,10 +47,28 @@ class BreakpointNotifier extends StateNotifier<BreakpointState> {
   }
 
   void _onNotification(BreakpointNotification notification) {
+    if (notification is BreakpointResolvedNotification) {
+      _onResolved(notification.breakpointId);
+      return;
+    }
     if (state.active == null) {
       _activate(notification);
     } else {
       _queue.add(notification);
+      state = state.copyWith(queue: List.of(_queue));
+    }
+  }
+
+  /// Closes the dialog (or removes the queued entry) for a breakpoint released
+  /// by the native side, e.g. when the feature is disabled.
+  void _onResolved(String breakpointId) {
+    if (state.active?.id == breakpointId) {
+      _advance();
+      return;
+    }
+    final before = _queue.length;
+    _queue.removeWhere((n) => n.id == breakpointId);
+    if (_queue.length != before) {
       state = state.copyWith(queue: List.of(_queue));
     }
   }

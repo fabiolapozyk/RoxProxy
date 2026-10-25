@@ -19,12 +19,18 @@ final class BreakpointHandler: @unchecked Sendable {
         var isAvailable: Bool { get }
         func requestSuspended(_ request: BreakpointRequest)
         func responseSuspended(_ response: ResponseBreakpoint)
+        /// A suspended entry was released without a user decision (disable or
+        /// shutdown): the UI must close the corresponding dialog.
+        func released(breakpointId: String)
     }
 
     /// Timeout before auto-proceed with the original request (RF5.1).
     static let defaultTimeout: TimeAmount = .seconds(30)
 
-    let matcher: BreakpointMatcher
+    /// Reads the live breakpoint toggle just before registering a suspension.
+    /// It is checked under the handler lock so a concurrent `disable` +
+    /// `releaseAll()` cannot leave a pending orphan behind.
+    private let isEnabled: @Sendable () -> Bool
 
     private let lock = NSLock()
     private var notifier: Notifier?
@@ -37,9 +43,12 @@ final class BreakpointHandler: @unchecked Sendable {
         let timeoutTask: Scheduled<Void>
     }
 
-    init(matcher: BreakpointMatcher, notifier: Notifier? = nil) {
-        self.matcher = matcher
+    init(
+        notifier: Notifier? = nil,
+        isEnabled: @escaping @Sendable () -> Bool = { true }
+    ) {
         self.notifier = notifier
+        self.isEnabled = isEnabled
     }
 
     // MARK: - Wiring
@@ -75,6 +84,11 @@ final class BreakpointHandler: @unchecked Sendable {
             ProxyLogger.breakpoint.default("Breakpoint: UI unavailable, forwarding request %{public}@", request.method)
             return false
         }
+        guard isEnabled() else {
+            lock.unlock()
+            ProxyLogger.breakpoint.debug("Breakpoint disabled, forwarding request %{public}@", request.method)
+            return false
+        }
         notifier.requestSuspended(request)
         let breakpointId = request.id
         let timeoutTask = eventLoop.scheduleTask(in: Self.defaultTimeout) { [weak self] in
@@ -102,6 +116,11 @@ final class BreakpointHandler: @unchecked Sendable {
         guard let notifier, notifier.isAvailable else {
             lock.unlock()
             ProxyLogger.breakpoint.default("Breakpoint: UI unavailable, forwarding response")
+            return false
+        }
+        guard isEnabled() else {
+            lock.unlock()
+            ProxyLogger.breakpoint.debug("Breakpoint disabled, forwarding response")
             return false
         }
         notifier.responseSuspended(response)
@@ -144,12 +163,14 @@ final class BreakpointHandler: @unchecked Sendable {
     func releaseAll() {
         lock.lock()
         let entries = Array(pending.values)
+        let notifier = self.notifier
         pending.removeAll()
         lock.unlock()
 
         for entry in entries {
             entry.timeoutTask.cancel()
             ProxyLogger.breakpoint.info("Breakpoint %{public}@: released on shutdown", entry.breakpointId)
+            notifier?.released(breakpointId: entry.breakpointId)
             entry.eventLoop.execute { entry.onDecision(.autoProceed(breakpointId: entry.breakpointId)) }
         }
     }

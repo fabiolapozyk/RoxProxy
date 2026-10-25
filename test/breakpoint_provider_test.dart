@@ -93,6 +93,46 @@ void main() {
     expect(state.queue.map((n) => n.id), ['c']);
   });
 
+  test('resolved notification closes the active dialog and advances', () async {
+    final fake = FakeBreakpointService();
+    final container = ProviderContainer(
+      overrides: [breakpointServiceProvider.overrideWithValue(fake)],
+    );
+    addTearDown(container.dispose);
+    container.read(breakpointProvider.notifier);
+
+    fake.controller.add(requestNotification('a'));
+    fake.controller.add(requestNotification('b'));
+    await Future<void>.delayed(Duration.zero);
+
+    fake.controller.add(const BreakpointResolvedNotification('a'));
+    await Future<void>.delayed(Duration.zero);
+
+    final state = container.read(breakpointProvider);
+    expect(state.active?.id, 'b');
+    expect(state.queue, isEmpty);
+  });
+
+  test('resolved notification removes a queued entry', () async {
+    final fake = FakeBreakpointService();
+    final container = ProviderContainer(
+      overrides: [breakpointServiceProvider.overrideWithValue(fake)],
+    );
+    addTearDown(container.dispose);
+    container.read(breakpointProvider.notifier);
+
+    fake.controller.add(requestNotification('a'));
+    fake.controller.add(requestNotification('b'));
+    await Future<void>.delayed(Duration.zero);
+
+    fake.controller.add(const BreakpointResolvedNotification('b'));
+    await Future<void>.delayed(Duration.zero);
+
+    final state = container.read(breakpointProvider);
+    expect(state.active?.id, 'a');
+    expect(state.queue, isEmpty);
+  });
+
   test('proceed sends the decision with modifications and advances', () async {
     final fake = FakeBreakpointService();
     final container = ProviderContainer(
