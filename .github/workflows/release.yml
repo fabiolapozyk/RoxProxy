@@ -18,7 +18,8 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          # Stessa versione della CI e delle release locali.
+          flutter-version: '3.41.5'
           cache: true
 
       - name: Set up Flutter macOS toolchain
