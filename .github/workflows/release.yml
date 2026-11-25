@@ -23,7 +23,11 @@ jobs:
           cache: true
 
       - name: Set up Flutter macOS toolchain
-        run: flutter config --enable-macos-desktop
+        run: |
+          flutter config --enable-macos-desktop
+          # Swift Package Manager: il plugin nativo dichiara le dipendenze
+          # SwiftNIO/SwiftCrypto in Package.swift.
+          flutter config --enable-swift-package-manager
 
       - name: Fetch dependencies
         run: flutter pub get
