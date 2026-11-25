@@ -89,8 +89,9 @@ class _ResponseBreakpointDialogState
     }
 
     final bodyText = _bodyController.text;
-    final hasBody = widget.response.body != null || bodyText.isNotEmpty;
-    final body = hasBody ? bodyText : null;
+    // Send the body only when the user actually changed it: an untouched
+    // (possibly compressed) response must be forwarded byte-for-byte.
+    final body = bodyText != (widget.response.body ?? '') ? bodyText : null;
 
     await ref
         .read(breakpointProvider.notifier)

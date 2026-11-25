@@ -356,6 +356,25 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
 
     // MARK: - CONNECT
 
+    /// Decides whether HTTPS traffic for `host` must be decrypted.
+    ///
+    /// Domain rules, Map Local and breakpoints all need plaintext, so any
+    /// matching rule forces MITM — provided interception is enabled and a
+    /// certificate cache is available.
+    static func shouldInterceptHTTPS(
+        config: ProxyConfig,
+        hasCertificateCache: Bool,
+        host: String
+    ) -> Bool {
+        guard config.httpsInterceptionEnabled, hasCertificateCache else { return false }
+        if config.domainRules.contains(where: { $0.matches(host: host) }) { return true }
+        if config.mapLocalMatcher.hasPossibleMatch(host: host) { return true }
+        if config.breakpointEnabled, config.breakpointMatcher.hasPossibleMatch(host: host) {
+            return true
+        }
+        return false
+    }
+
     private func handleCONNECT(context: ChannelHandlerContext, head: HTTPRequestHead) {
         let target = Self.parseCONNECTTarget(authority: head.uri)
         ProxyLogger.http.debug("HTTPS CONNECT to %{public}@:%d", target.host, target.port)
@@ -369,13 +388,21 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler {
         // host with a matching rule forces MITM interception.
         let config = configStore.current()
         let hasMapLocalRule = config.mapLocalMatcher.hasPossibleMatch(host: target.host)
-        let hasDomainRule = config.domainRules.contains(where: { $0.matches(host: target.host) })
-        let shouldMITM = config.httpsInterceptionEnabled
-            && domainCertCache != nil
-            && (hasDomainRule || hasMapLocalRule)
+        // Breakpoint rules can only apply to decrypted traffic: force MITM for
+        // hosts with a matching rule even when no domain/Map Local rule exists.
+        let hasBreakpointRule = config.breakpointEnabled
+            && config.breakpointMatcher.hasPossibleMatch(host: target.host)
+        let shouldMITM = Self.shouldInterceptHTTPS(
+            config: config,
+            hasCertificateCache: domainCertCache != nil,
+            host: target.host
+        )
 
         if hasMapLocalRule && !config.httpsInterceptionEnabled {
             ProxyLogger.map.default("Map Local rule exists for %{public}@ but HTTPS interception is disabled — rule will not apply", target.host)
+        }
+        if hasBreakpointRule && !config.httpsInterceptionEnabled {
+            ProxyLogger.breakpoint.default("Breakpoint rule exists for %{public}@ but HTTPS interception is disabled — rule will not apply", target.host)
         }
 
         if shouldMITM {

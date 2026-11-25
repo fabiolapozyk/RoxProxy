@@ -188,8 +188,13 @@ final class OutboundHTTPHandler: ChannelInboundHandler {
 
     private func shouldBreakpointResponse() -> Bool {
         guard breakpointEnabled, breakpointHandler != nil else { return false }
+        // Match the path only (query string excluded), consistently with
+        // request matching and the rule editor's pre-filled pattern.
+        let path = exchange.path.split(
+            separator: "?", maxSplits: 1, omittingEmptySubsequences: false
+        ).first.map(String.init) ?? exchange.path
         return breakpointMatcher.shouldBreakpointResponse(
-            method: exchange.method, host: exchange.host, path: exchange.path
+            method: exchange.method, host: exchange.host, path: path
         )
     }
 
@@ -206,7 +211,7 @@ final class OutboundHTTPHandler: ChannelInboundHandler {
             statusCode: Int(s.head.status.code),
             statusMessage: s.head.status.reasonPhrase,
             headers: s.head.headers.map { (name: $0.name, value: $0.value) },
-            body: responseCapture.bodyContent?.asString(),
+            body: editableBody(headers: s.head.headers),
             timestamp: Date()
         )
         let didSuspend = handler.suspend(
@@ -222,6 +227,20 @@ final class OutboundHTTPHandler: ChannelInboundHandler {
             // UI unavailable → forward immediately (RF3.3).
             resume(s, context: context)
         }
+    }
+
+    /// Body shown in the breakpoint dialog. Compressed responses are decoded
+    /// so the user edits plain text; truncated bodies are hidden because
+    /// editing them would corrupt the forwarded response.
+    private func editableBody(headers: HTTPHeaders) -> String? {
+        guard let content = responseCapture.bodyContent,
+              !content.isTruncated,
+              let data = content.data else { return nil }
+        if let encoding = headers.first(name: "Content-Encoding"),
+           let decoded = GzipDecompressor.decode(data: data, contentEncoding: encoding) {
+            return String(data: decoded, encoding: .utf8)
+        }
+        return content.asString()
     }
 
     /// Proceed → forward the buffered response; Cancel → close the client

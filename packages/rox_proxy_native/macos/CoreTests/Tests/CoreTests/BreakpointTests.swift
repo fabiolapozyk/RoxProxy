@@ -215,6 +215,113 @@ final class BreakpointMatcherTests: XCTestCase {
         XCTAssertTrue(m.shouldBreakpointRequest(method: "GET", host: "h", path: "/"))
         XCTAssertFalse(m.shouldBreakpointRequest(method: "POST", host: "h", path: "/"))
     }
+
+    // MARK: - MITM decision support
+
+    func testHasPossibleMatchIgnoresMethodAndPath() {
+        let m = matcher([
+            rule(host: "api.example.com", path: "/api/**", method: "POST", target: .response)
+        ])
+        XCTAssertTrue(m.hasPossibleMatch(host: "api.example.com"))
+        XCTAssertFalse(m.hasPossibleMatch(host: "other.com"))
+    }
+
+    func testHasPossibleMatchIgnoresDisabledRules() {
+        let m = matcher([rule(host: "api.example.com", enabled: false)])
+        XCTAssertFalse(m.hasPossibleMatch(host: "api.example.com"))
+    }
+}
+
+// MARK: - HTTPS interception decision
+
+final class HTTPSInterceptionDecisionTests: XCTestCase {
+
+    private func config(
+        domainRules: [DomainRule] = [],
+        mapLocal: [MapLocalRule] = [],
+        breakpoints: [BreakpointRule] = [],
+        breakpointEnabled: Bool = true,
+        httpsEnabled: Bool = true
+    ) -> ProxyConfig {
+        ProxyConfig(
+            domainRules: domainRules,
+            mapLocalMatcher: MapLocalMatcher(rules: mapLocal),
+            breakpointMatcher: BreakpointMatcher(rules: breakpoints),
+            breakpointEnabled: breakpointEnabled,
+            httpsInterceptionEnabled: httpsEnabled,
+            version: 0
+        )
+    }
+
+    /// Regression: a breakpoint rule alone must force HTTPS decryption,
+    /// otherwise the rule can never fire on HTTPS traffic.
+    func testBreakpointRuleForcesMITM() {
+        let cfg = config(breakpoints: [
+            BreakpointRule(hostPattern: "api.example.com", target: .response)
+        ])
+        XCTAssertTrue(
+            HTTPProxyHandler.shouldInterceptHTTPS(
+                config: cfg, hasCertificateCache: true, host: "api.example.com"
+            )
+        )
+        XCTAssertFalse(
+            HTTPProxyHandler.shouldInterceptHTTPS(
+                config: cfg, hasCertificateCache: true, host: "other.com"
+            )
+        )
+    }
+
+    func testDisabledBreakpointFeatureDoesNotForceMITM() {
+        let cfg = config(
+            breakpoints: [BreakpointRule(hostPattern: "api.example.com", target: .response)],
+            breakpointEnabled: false
+        )
+        XCTAssertFalse(
+            HTTPProxyHandler.shouldInterceptHTTPS(
+                config: cfg, hasCertificateCache: true, host: "api.example.com"
+            )
+        )
+    }
+
+    func testNoCertificateCacheDisablesMITM() {
+        let cfg = config(breakpoints: [
+            BreakpointRule(hostPattern: "api.example.com", target: .response)
+        ])
+        XCTAssertFalse(
+            HTTPProxyHandler.shouldInterceptHTTPS(
+                config: cfg, hasCertificateCache: false, host: "api.example.com"
+            )
+        )
+    }
+
+    func testDisabledHTTPSInterceptionDisablesMITM() {
+        let cfg = config(
+            domainRules: [DomainRule(domain: "api.example.com")],
+            httpsEnabled: false
+        )
+        XCTAssertFalse(
+            HTTPProxyHandler.shouldInterceptHTTPS(
+                config: cfg, hasCertificateCache: true, host: "api.example.com"
+            )
+        )
+    }
+
+    func testDomainAndMapLocalRulesStillForceMITM() {
+        let domain = config(domainRules: [DomainRule(domain: "api.example.com")])
+        XCTAssertTrue(
+            HTTPProxyHandler.shouldInterceptHTTPS(
+                config: domain, hasCertificateCache: true, host: "api.example.com"
+            )
+        )
+        let mapLocal = config(mapLocal: [
+            MapLocalRule(hostPattern: "static.example.com", pathPattern: "/**")
+        ])
+        XCTAssertTrue(
+            HTTPProxyHandler.shouldInterceptHTTPS(
+                config: mapLocal, hasCertificateCache: true, host: "static.example.com"
+            )
+        )
+    }
 }
 
 // MARK: - BreakpointRequest serialization
@@ -950,6 +1057,68 @@ final class ResponseModifierTests: XCTestCase {
         XCTAssertNil(result.head.headers.first(name: "Transfer-Encoding"))
         XCTAssertEqual(result.exchange.responseBody?.asString(), "hello")
         XCTAssertEqual(result.exchange.responseSize, 5)
+    }
+
+    /// Regression: the dialog sends the full header list back, so a compressed
+    /// response keeps `Content-Encoding` unless the modifier drops it when the
+    /// body is replaced with plain text.
+    func testBodyChangeDropsContentEncoding() {
+        let head = HTTPResponseHead(
+            version: .http1_1,
+            status: .ok,
+            headers: HTTPHeaders([
+                ("Content-Type", "application/json"),
+                ("Content-Encoding", "gzip"),
+                ("Content-Length", "44"),
+            ])
+        )
+        let result = ResponseModifier.apply(
+            response: proceedResponse([
+                "breakpointId": "bp",
+                "action": "proceed",
+                "modifiedHeaders": [
+                    ["name": "Content-Type", "value": "application/json"],
+                    ["name": "Content-Encoding", "value": "gzip"],
+                    ["name": "Content-Length", "value": "44"],
+                ],
+                "modifiedBody": #"{"message":"edited"}"#,
+            ]),
+            originalHead: head,
+            bodyParts: [],
+            exchange: makeExchange(),
+            allocator: allocator
+        )
+        XCTAssertNil(result.head.headers.first(name: "Content-Encoding"))
+        XCTAssertEqual(result.head.headers.first(name: "Content-Length"), "20")
+        XCTAssertEqual(result.exchange.responseBody?.asString(), #"{"message":"edited"}"#)
+    }
+
+    /// An untouched body must keep its original encoding.
+    func testHeadersOnlyChangeKeepsContentEncoding() {
+        let head = HTTPResponseHead(
+            version: .http1_1,
+            status: .ok,
+            headers: HTTPHeaders([
+                ("Content-Encoding", "gzip"),
+                ("Content-Length", "44"),
+            ])
+        )
+        let result = ResponseModifier.apply(
+            response: proceedResponse([
+                "breakpointId": "bp",
+                "action": "proceed",
+                "modifiedHeaders": [
+                    ["name": "Content-Encoding", "value": "gzip"],
+                    ["name": "Content-Length", "value": "44"],
+                ],
+            ]),
+            originalHead: head,
+            bodyParts: [],
+            exchange: makeExchange(),
+            allocator: allocator
+        )
+        XCTAssertEqual(result.head.headers.first(name: "Content-Encoding"), "gzip")
+        XCTAssertEqual(result.head.headers.first(name: "Content-Length"), "44")
     }
 
     func testEmptyBodyChange() {

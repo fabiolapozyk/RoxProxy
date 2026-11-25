@@ -70,6 +70,10 @@ enum ResponseModifier {
             newBodyParts = [buffer]
             head.headers.remove(name: "Content-Length")
             head.headers.remove(name: "Transfer-Encoding")
+            // The edited body is plain text: keeping the original encoding
+            // would make the client fail to decode it.
+            head.headers.remove(name: "Content-Encoding")
+            head.headers.remove(name: "Content-MD5")
             head.headers.add(name: "Content-Length", value: "\(bodyString.utf8.count)")
             updated.responseBody = bodyString.isEmpty ? .empty : .data(Data(bodyString.utf8))
             updated.responseSize = bodyString.utf8.count

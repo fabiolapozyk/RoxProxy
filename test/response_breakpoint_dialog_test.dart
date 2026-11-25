@@ -114,6 +114,20 @@ void main() {
     expect(decision.modifiedHeaders, isNotNull);
   });
 
+  testWidgets('proceed without edits keeps the original body', (tester) async {
+    final fake = FakeBreakpointService();
+    await pumpDialog(tester, fake);
+
+    await tester.tap(find.text('Proceed'));
+    await tester.pumpAndSettle();
+
+    final decision = fake.decisions.single;
+    expect(decision.action.name, 'proceed');
+    // Untouched body → null, so the core forwards the original bytes
+    // (important for compressed responses).
+    expect(decision.modifiedBody, isNull);
+  });
+
   testWidgets('shows a specific hint when the response has no body', (
     tester,
   ) async {

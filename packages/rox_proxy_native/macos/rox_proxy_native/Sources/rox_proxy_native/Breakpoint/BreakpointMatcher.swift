@@ -28,6 +28,14 @@ struct BreakpointMatcher: Sendable {
 
     // MARK: - Matching
 
+    /// True if any enabled rule could apply to the given host (regardless of
+    /// method/path). Used at CONNECT time to decide whether HTTPS must be
+    /// MITM-intercepted: without decryption a breakpoint rule can never fire
+    /// on HTTPS traffic.
+    func hasPossibleMatch(host: String) -> Bool {
+        enabledRules.contains { matchesHost(rule: $0, host: host) }
+    }
+
     func shouldBreakpointRequest(method: String, host: String, path: String) -> Bool {
         enabledRules.contains {
             (($0.target == .request || $0.target == .both)
