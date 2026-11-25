@@ -12,6 +12,20 @@ e il progetto usa [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Workflow di release: tag `v*` -> build + DMG + draft release (`.github/workflows/release.yml`)
 - Roadmap pubblica su issue (`label: roadmap`): rewrite rules (#9), export HAR (#10)
 
+## [0.5.1] - 2026-11-25
+
+### Changed
+
+- Il dialog di risposta invia il body al core solo quando l'utente lo modifica
+
+### Fixed
+
+- I breakpoint ora intercettano anche il traffico HTTPS senza dover aggiungere una domain rule: un host con una regola breakpoint attiva viene decifrato automaticamente
+- Il match dei breakpoint di risposta ignora la querystring, coerentemente con le regole salvate dall'interfaccia
+- Le risposte compresse (gzip/deflate) mostrano il body decodificato nel dialog e, se modificato, vengono inoltrate senza `Content-Encoding`, evitando gli errori di decoding nel client
+- Il body di una risposta non modificato viene inoltrato byte-per-byte, anche quando compresso
+- I body troncati non sono più modificabili nel dialog, per evitare risposte corrotte
+
 ## [0.5.0] - 2026-10-25
 
 ### Added
@@ -51,6 +65,7 @@ e il progetto usa [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Metriche proxy (`ProxyMetrics`)
 - Crash recovery: ripristino proxy di sistema su uscita non pulita (sentinel + signal handler)
 
-[Unreleased]: https://github.com/flapozyk/RoxProxy/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/flapozyk/RoxProxy/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/flapozyk/RoxProxy/releases/tag/v0.5.1
 [0.5.0]: https://github.com/flapozyk/RoxProxy/releases/tag/v0.5.0
 [0.1.0]: https://github.com/flapozyk/RoxProxy/releases/tag/v0.1.0
